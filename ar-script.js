@@ -10,9 +10,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // DOM elements
     const arContainer = document.getElementById('ar-container');
     const loadingElement = document.getElementById('loading');
-    const permissionPrompt = document.getElementById('permission-prompt');
+    const errorElement = document.getElementById('error-message');
+    const errorTitle = document.getElementById('error-title');
+    const errorText = document.getElementById('error-text');
     const loadingStatus = document.getElementById('loading-status');
-    const startCameraButton = document.getElementById('start-camera');
+    const retryButton = document.getElementById('retry-button');
 
     // Three.js variables
     let scene, camera, renderer, model;
@@ -22,75 +24,76 @@ document.addEventListener('DOMContentLoaded', function() {
     let deviceOrientation = { alpha: 0, beta: 0, gamma: 0 };
     let isCompassAvailable = false;
 
-    // Initialize the AR experience
+    // Initialize everything
     async function init() {
-        loadingStatus.textContent = 'Requesting camera access...';
-        
         try {
-            // First, get camera access
+            loadingStatus.textContent = 'Starting camera...';
+            
+            // Step 1: Get camera access
             await setupCamera();
             
-            // Then setup Three.js scene
+            // Step 2: Setup Three.js scene
             setupScene();
             
-            // Load the 3D model
+            // Step 3: Load 3D model
             await loadModel();
             
-            // Setup geolocation and orientation
+            // Step 4: Setup location and orientation
             setupGeolocation();
             setupDeviceOrientation();
             
-            // Start animation loop
+            // Step 5: Start animation
             animate();
             
             // Hide loading screen
-            loadingElement.classList.add('hidden');
+            setTimeout(() => {
+                loadingElement.classList.add('hidden');
+            }, 1000);
             
         } catch (error) {
             console.error('Initialization error:', error);
-            loadingStatus.textContent = 'Error: ' + error.message;
+            showError('Camera Access Required', 'Please allow camera permissions to view the AR experience.');
         }
     }
 
     async function setupCamera() {
-        // Check if getUserMedia is available
+        // Check if browser supports camera
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            throw new Error('Camera API not supported in this browser');
+            throw new Error('Camera not supported in this browser');
         }
 
         try {
-            // Request camera access
+            // Request camera access directly
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: {
-                    facingMode: 'environment', // Use back camera
+                    facingMode: 'environment',
                     width: { ideal: 1280 },
                     height: { ideal: 720 }
-                }
+                },
+                audio: false
             });
 
-            // Create video element
+            // Create and setup video element
             video = document.createElement('video');
             video.srcObject = stream;
             video.playsInline = true;
+            video.setAttribute('playsinline', 'true'); // iOS requirement
             video.play();
 
             // Wait for video to be ready
-            await new Promise((resolve) => {
-                video.addEventListener('loadedmetadata', resolve);
+            return new Promise((resolve) => {
+                video.addEventListener('loadeddata', () => {
+                    // Create video texture
+                    videoTexture = new THREE.VideoTexture(video);
+                    videoTexture.minFilter = THREE.LinearFilter;
+                    videoTexture.magFilter = THREE.LinearFilter;
+                    resolve();
+                });
             });
 
-            // Create video texture
-            videoTexture = new THREE.VideoTexture(video);
-            videoTexture.minFilter = THREE.LinearFilter;
-            videoTexture.magFilter = THREE.LinearFilter;
-            videoTexture.format = THREE.RGBFormat;
-
         } catch (error) {
-            console.error('Camera error:', error);
-            // Show permission prompt
-            permissionPrompt.classList.remove('hidden');
-            loadingElement.classList.add('hidden');
-            throw new Error('Camera access denied or unavailable');
+            console.error('Camera setup failed:', error);
+            throw new Error('Camera access denied. Please allow camera permissions.');
         }
     }
 
@@ -98,105 +101,115 @@ document.addEventListener('DOMContentLoaded', function() {
         // Create scene
         scene = new THREE.Scene();
 
-        // Create camera - match video aspect ratio
+        // Create camera with video aspect ratio
         const aspectRatio = video.videoWidth / video.videoHeight;
-        camera = new THREE.PerspectiveCamera(60, aspectRatio, 0.1, 1000);
+        camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
         scene.add(camera);
 
         // Create renderer
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer = new THREE.WebGLRenderer({ 
+            antialias: true, 
+            alpha: true,
+            preserveDrawingBuffer: true
+        });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setClearColor(0x000000, 0);
         arContainer.appendChild(renderer.domElement);
 
-        // Create background with camera feed
-        const backgroundGeometry = new THREE.PlaneGeometry(2, 2);
-        const backgroundMaterial = new THREE.MeshBasicMaterial({
+        // Create camera background
+        const planeGeometry = new THREE.PlaneGeometry(2, 2);
+        const planeMaterial = new THREE.MeshBasicMaterial({
             map: videoTexture,
             transparent: true,
             opacity: 1
         });
-        const background = new THREE.Mesh(backgroundGeometry, backgroundMaterial);
-        background.position.z = -1; // Place behind everything
+        const background = new THREE.Mesh(planeGeometry, planeMaterial);
+        background.position.z = -0.5;
         scene.add(background);
 
         // Add lights for the 3D model
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
         scene.add(ambientLight);
 
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
-        directionalLight.position.set(5, 10, 7);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(1, 1, 1);
         scene.add(directionalLight);
     }
 
-    async function loadModel() {
-        loadingStatus.textContent = 'Loading 3D model...';
+    function loadModel() {
+        return new Promise((resolve) => {
+            loadingStatus.textContent = 'Loading 3D model...';
 
-        return new Promise((resolve, reject) => {
             const loader = new THREE.GLTFLoader();
             
-            // Use CORS proxy for GitHub raw URLs
-            const loadWithCORSWorkaround = (url) => {
-                return new Promise((resolveLoad, rejectLoad) => {
-                    loader.load(url, resolveLoad, undefined, (error) => {
-                        console.log('Direct load failed, trying CORS proxy:', error);
+            // Try direct load first, then CORS proxy
+            const tryLoad = (url) => {
+                loader.load(url, 
+                    (gltf) => {
+                        model = gltf.scene;
+                        
+                        // Scale model to specified height
+                        const box = new THREE.Box3().setFromObject(model);
+                        const size = box.getSize(new THREE.Vector3());
+                        const scale = height / size.y;
+                        model.scale.set(scale, scale, scale);
+                        
+                        // Initial position
+                        model.position.set(0, placementHeight, -3);
+                        
+                        scene.add(model);
+                        resolve();
+                    },
+                    undefined,
+                    (error) => {
+                        console.error('Model load failed:', error);
+                        // Try with CORS proxy
                         const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-                        loader.load(proxyUrl, resolveLoad, undefined, rejectLoad);
-                    });
-                });
+                        loader.load(proxyUrl,
+                            (gltf) => {
+                                model = gltf.scene;
+                                const box = new THREE.Box3().setFromObject(model);
+                                const size = box.getSize(new THREE.Vector3());
+                                const scale = height / size.y;
+                                model.scale.set(scale, scale, scale);
+                                model.position.set(0, placementHeight, -3);
+                                scene.add(model);
+                                resolve();
+                            },
+                            undefined,
+                            (proxyError) => {
+                                console.error('Proxy load failed:', proxyError);
+                                createFallbackModel();
+                                resolve();
+                            }
+                        );
+                    }
+                );
             };
 
-            loadWithCORSWorkaround(modelUrl)
-                .then(gltf => {
-                    model = gltf.scene;
-                    
-                    // Scale the model based on the specified height
-                    const box = new THREE.Box3().setFromObject(model);
-                    const modelHeight = box.max.y - box.min.y;
-                    const scale = height / modelHeight;
-                    model.scale.set(scale, scale, scale);
-                    
-                    // Initial position - will be updated based on location
-                    model.position.set(0, placementHeight, -5);
-                    
-                    // Add the model to the scene
-                    scene.add(model);
-                    
-                    loadingStatus.textContent = 'Model loaded! Getting location...';
-                    resolve();
-                })
-                .catch(error => {
-                    console.error('Error loading model:', error);
-                    // Create a fallback model
-                    createFallbackModel();
-                    loadingStatus.textContent = 'Using fallback model';
-                    resolve();
-                });
+            tryLoad(modelUrl);
         });
     }
 
     function createFallbackModel() {
         const geometry = new THREE.BoxGeometry(1, height, 1);
         const material = new THREE.MeshLambertMaterial({ 
-            color: 0x6a11cb,
-            transparent: true,
-            opacity: 0.9
+            color: 0x6a11cb
         });
         model = new THREE.Mesh(geometry, material);
-        model.position.set(0, placementHeight, -5);
+        model.position.set(0, placementHeight, -3);
         scene.add(model);
     }
 
     function setupGeolocation() {
         if (!navigator.geolocation) {
-            console.warn('Geolocation not supported');
-            updateModelPosition(10, 0); // Default position
+            console.warn('Geolocation not available');
             return;
         }
 
         const options = {
             enableHighAccuracy: true,
-            timeout: 15000,
+            timeout: 10000,
             maximumAge: 0
         };
 
@@ -207,18 +220,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     lng: position.coords.longitude
                 };
 
-                // Calculate distance and bearing to target
-                const { distance, bearing } = calculateDistanceAndBearing(
-                    userPosition.lat, userPosition.lng,
-                    targetLat, targetLng
-                );
-
-                // Update model position
-                updateModelPosition(distance, bearing);
+                if (targetLat && targetLng) {
+                    const { distance, bearing } = calculateDistanceAndBearing(
+                        userPosition.lat, userPosition.lng,
+                        targetLat, targetLng
+                    );
+                    updateModelPosition(distance, bearing);
+                }
             },
             (error) => {
-                console.warn('Geolocation error:', error);
-                updateModelPosition(10, 0); // Default position
+                console.warn('Location error:', error);
             },
             options
         );
@@ -226,34 +237,31 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function setupDeviceOrientation() {
         if (!window.DeviceOrientationEvent) {
-            console.warn('Device orientation not supported');
+            console.warn('Device orientation not available');
             return;
         }
 
-        // Request permission for iOS 13+
+        // Handle iOS permission
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
             DeviceOrientationEvent.requestPermission()
                 .then(permissionState => {
                     if (permissionState === 'granted') {
-                        window.addEventListener('deviceorientation', handleDeviceOrientation);
+                        window.addEventListener('deviceorientation', handleOrientation);
                         isCompassAvailable = true;
                     }
                 })
                 .catch(console.error);
         } else {
-            window.addEventListener('deviceorientation', handleDeviceOrientation);
+            window.addEventListener('deviceorientation', handleOrientation);
             isCompassAvailable = true;
         }
     }
 
-    function handleDeviceOrientation(event) {
-        deviceOrientation = {
-            alpha: event.alpha || 0,
-            beta: event.beta || 0,
-            gamma: event.gamma || 0
-        };
+    function handleOrientation(event) {
+        deviceOrientation.alpha = event.alpha || 0;
+        deviceOrientation.beta = event.beta || 0;
+        deviceOrientation.gamma = event.gamma || 0;
         
-        // Update compass heading
         if (event.alpha !== null) {
             userHeading = event.alpha;
         }
@@ -261,25 +269,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function calculateDistanceAndBearing(lat1, lon1, lat2, lon2) {
         const R = 6371000;
-        
         const φ1 = lat1 * Math.PI / 180;
         const φ2 = lat2 * Math.PI / 180;
         const Δφ = (lat2 - lat1) * Math.PI / 180;
         const Δλ = (lon2 - lon1) * Math.PI / 180;
-        
-        // Distance
+
         const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
                  Math.cos(φ1) * Math.cos(φ2) *
                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         const distance = R * c;
-        
-        // Bearing
+
         const y = Math.sin(Δλ) * Math.cos(φ2);
         const x = Math.cos(φ1) * Math.sin(φ2) -
                  Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
         const bearing = Math.atan2(y, x) * 180 / Math.PI;
-        
+
         return {
             distance: distance,
             bearing: (bearing + 360) % 360
@@ -288,85 +293,72 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function updateModelPosition(distance, bearing) {
         if (!model) return;
-        
-        // Convert to relative position
-        const visibleDistance = Math.min(distance, 50) / 10;
+
+        const visibleDistance = Math.min(distance / 10, 10);
         const relativeAngle = (bearing - userHeading + 360) % 360;
-        const angleRad = (relativeAngle * Math.PI) / 180;
-        
-        // Position model based on direction
+        const angleRad = relativeAngle * Math.PI / 180;
+
         const x = Math.sin(angleRad) * visibleDistance;
         const z = -Math.cos(angleRad) * visibleDistance;
-        
+
         model.position.set(x, placementHeight, z);
-        
-        // Make model face user
         model.lookAt(0, placementHeight, 0);
-        
+
         // Scale based on distance
-        const scaleFactor = Math.max(0.3, 1 - (distance / 100));
-        if (model.scale) {
-            model.scale.setScalar(scaleFactor);
-        }
+        const scale = Math.max(0.1, 1 - (distance / 100));
+        model.scale.setScalar(scale);
     }
 
     function animate() {
         requestAnimationFrame(animate);
-        
-        // Update camera rotation based on device orientation
-        if (isCompassAvailable && deviceOrientation.alpha !== null) {
-            camera.rotation.y = -deviceOrientation.alpha * (Math.PI / 180);
+
+        // Update camera rotation based on compass
+        if (isCompassAvailable) {
+            camera.rotation.y = -deviceOrientation.alpha * Math.PI / 180;
         }
-        
+
         renderer.render(scene, camera);
     }
 
-    // Handle window resize
+    function showError(title, message) {
+        errorTitle.textContent = title;
+        errorText.textContent = message;
+        loadingElement.classList.add('hidden');
+        errorElement.classList.remove('hidden');
+    }
+
+    // Event handlers
+    retryButton.addEventListener('click', function() {
+        errorElement.classList.add('hidden');
+        loadingElement.classList.remove('hidden');
+        setTimeout(init, 500);
+    });
+
     window.addEventListener('resize', function() {
-        if (camera && video) {
-            camera.aspect = video.videoWidth / video.videoHeight;
+        if (camera && renderer) {
+            camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
-        }
-        if (renderer) {
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
     });
 
-    // Handle permission prompt button
-    startCameraButton.addEventListener('click', function() {
-        permissionPrompt.classList.add('hidden');
-        loadingElement.classList.remove('hidden');
-        init();
-    });
-
     // Double-tap to exit (hidden gesture)
-    let tapCount = 0;
     let lastTap = 0;
-    arContainer.addEventListener('click', function() {
+    arContainer.addEventListener('click', function(e) {
         const currentTime = new Date().getTime();
         const tapLength = currentTime - lastTap;
         
-        if (tapCount === 0 || tapLength < 300) {
-            tapCount++;
-            lastTap = currentTime;
-            
-            if (tapCount === 2) {
-                // Double-tap detected - exit
-                if (window.history.length > 1) {
-                    window.history.back();
-                } else {
-                    window.close();
-                }
+        if (tapLength < 300 && tapLength > 0) {
+            // Double tap detected - go back
+            if (window.history.length > 1) {
+                window.history.back();
+            } else {
+                window.close();
             }
-        } else {
-            tapCount = 1;
-            lastTap = currentTime;
         }
-        
-        // Reset tap count after 1 second
-        setTimeout(() => { tapCount = 0; }, 1000);
+        lastTap = currentTime;
     });
 
-    // Start initialization
+    // Start the AR experience immediately
     init();
 });
