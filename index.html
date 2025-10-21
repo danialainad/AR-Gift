@@ -5,172 +5,141 @@
     <title>AR Gift GPS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- A-Frame and AR.js (with GPS support) -->
-    <script src="https://cdn.jsdelivr.net/npm/aframe@1.4.2/dist/aframe.min.js"></script>
+    <!-- A-Frame & AR.js -->
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://unpkg.com/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
+    <script src="https://unpkg.com/aframe-ar@3.3.2/dist/aframe-ar.min.js"></script>
     <script src="https://unpkg.com/aframe-gps-camera/dist/aframe-gps-camera.min.js"></script>
     <script src="https://unpkg.com/aframe-gps-entity-place/dist/aframe-gps-entity-place.min.js"></script>
 
     <style>
-      html, body {
+      body {
         margin: 0;
         overflow: hidden;
-        height: 100%;
-        background: #000;
-        color: white;
-        font-family: system-ui, sans-serif;
+        font-family: sans-serif;
       }
-
-      #panel {
+      #setupPanel {
         position: absolute;
-        top: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(0, 0, 0, 0.85);
-        padding: 20px;
-        border-radius: 12px;
-        z-index: 10;
-        width: 90%;
-        max-width: 400px;
-        display: none;
-      }
-
-      #panel input {
+        top: 0;
+        left: 0;
         width: 100%;
-        margin: 4px 0;
-        padding: 6px;
-        border-radius: 6px;
-        border: none;
-        outline: none;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 5;
       }
-
-      #panel button {
-        width: 100%;
+      #setupPanel input {
+        margin: 6px;
         padding: 8px;
-        margin-top: 8px;
-        border: none;
-        background: #0cf;
-        color: #000;
-        border-radius: 6px;
-        font-weight: bold;
-        cursor: pointer;
+        width: 260px;
       }
-
-      #shareLink {
-        word-break: break-all;
-        font-size: 12px;
+      #setupPanel button {
+        padding: 10px 20px;
         margin-top: 10px;
+        background: #00bcd4;
+        border: none;
+        color: white;
+        cursor: pointer;
+        font-size: 16px;
       }
-
-      #loading {
+      #loadingMsg {
         position: absolute;
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
         color: white;
-        background: rgba(0, 0, 0, 0.6);
-        padding: 10px 20px;
+        font-size: 18px;
+        background: rgba(0, 0, 0, 0.5);
+        padding: 12px 20px;
         border-radius: 10px;
-        font-size: 16px;
-        z-index: 5;
+        z-index: 2;
       }
     </style>
   </head>
   <body>
-    <!-- Loading message -->
-    <div id="loading">📷 Waiting for camera and GPS...</div>
-
-    <!-- Setup Panel -->
-    <div id="panel">
-      <h3>📍 AR Object Setup</h3>
-
-      <label>Model (.glb) URL:</label>
-      <input id="modelUrl" type="text" placeholder="https://example.com/model.glb" />
-
-      <label>Latitude:</label>
-      <input id="lat" type="number" step="any" placeholder="35.6892" />
-
-      <label>Longitude:</label>
-      <input id="lon" type="number" step="any" placeholder="51.3890" />
-
-      <label>Height (meters):</label>
-      <input id="alt" type="number" step="any" placeholder="10" />
-
-      <label>Size (meters):</label>
-      <input id="size" type="number" step="any" placeholder="20" />
-
+    <!-- Setup panel (visible only when no query params) -->
+    <div id="setupPanel">
+      <h2>Place Your AR Gift 🎁</h2>
+      <input id="modelUrl" type="text" placeholder="Model URL (.glb)" />
+      <input id="latitude" type="number" step="0.000001" placeholder="Latitude" />
+      <input id="longitude" type="number" step="0.000001" placeholder="Longitude" />
+      <input id="altitude" type="number" step="0.1" placeholder="Altitude (meters)" />
+      <input id="size" type="number" step="0.1" placeholder="Size (meters)" />
       <button id="generateBtn">Generate Share Link</button>
-
-      <div id="shareLink"></div>
+      <div id="linkContainer" style="margin-top:15px;"></div>
     </div>
+
+    <!-- Loading message -->
+    <div id="loadingMsg">📷 Waiting for camera and GPS...</div>
 
     <!-- AR Scene -->
     <a-scene
       embedded
       vr-mode-ui="enabled: false"
-      device-orientation-permission-ui="enabled: true"
-      renderer="antialias: true; alpha: true"
+      renderer="antialias: true; alpha: true;"
+      arjs="sourceType: webcam; debugUIEnabled: false;"
     >
-      <a-entity id="arModel"></a-entity>
-      <a-camera gps-camera rotation-reader></a-camera>
+      <a-entity gps-camera rotation-reader></a-entity>
     </a-scene>
 
     <script>
-      const params = new URLSearchParams(window.location.search);
-      const lat = parseFloat(params.get("lat"));
-      const lon = parseFloat(params.get("lon"));
-      const alt = parseFloat(params.get("alt"));
-      const modelUrl = params.get("model");
-      const size = parseFloat(params.get("size"));
+      const urlParams = new URLSearchParams(window.location.search);
+      const modelUrl = urlParams.get("model");
+      const lat = parseFloat(urlParams.get("lat"));
+      const lon = parseFloat(urlParams.get("lon"));
+      const alt = parseFloat(urlParams.get("alt")) || 0;
+      const size = parseFloat(urlParams.get("size")) || 10;
 
-      const panel = document.getElementById("panel");
-      const loading = document.getElementById("loading");
-      const modelEntity = document.getElementById("arModel");
+      const setupPanel = document.getElementById("setupPanel");
+      const loadingMsg = document.getElementById("loadingMsg");
 
-      // --- VIEW MODE ---
       if (modelUrl && lat && lon) {
-        panel.style.display = "none";
+        // Hide setup panel
+        setupPanel.style.display = "none";
+        loadingMsg.style.display = "block";
 
-        // Add model to AR scene
-        modelEntity.setAttribute("gltf-model", modelUrl);
-        modelEntity.setAttribute("gps-entity-place", `latitude: ${lat}; longitude: ${lon};`);
-        modelEntity.setAttribute("position", `0 ${alt || 0} 0`);
+        // Wait for A-Frame to be ready
+        document.querySelector("a-scene").addEventListener("loaded", () => {
+          const scene = document.querySelector("a-scene");
 
-        const scaleValue = size ? size / 10 : 1;
-        modelEntity.setAttribute("scale", `${scaleValue} ${scaleValue} ${scaleValue}`);
+          const model = document.createElement("a-entity");
+          model.setAttribute("gltf-model", modelUrl);
+          model.setAttribute("gps-entity-place", `latitude: ${lat}; longitude: ${lon}; altitude: ${alt}`);
+          model.setAttribute("scale", `${size} ${size} ${size}`);
+          model.setAttribute("rotation", "0 180 0");
+          scene.appendChild(model);
 
-        // Hide loading once GPS ready
-        window.addEventListener("gps-camera-update-position", () => {
-          loading.style.display = "none";
+          window.addEventListener("gps-camera-update-position", (e) => {
+            loadingMsg.style.display = "none";
+          });
         });
-      }
-      // --- SETUP MODE ---
-      else {
-        loading.style.display = "none";
-        panel.style.display = "block";
-
-        document.getElementById("generateBtn").onclick = () => {
+      } else {
+        // Setup mode
+        loadingMsg.style.display = "none";
+        document.getElementById("generateBtn").addEventListener("click", () => {
           const m = document.getElementById("modelUrl").value.trim();
-          const la = document.getElementById("lat").value.trim();
-          const lo = document.getElementById("lon").value.trim();
-          const al = document.getElementById("alt").value.trim() || 0;
-          const si = document.getElementById("size").value.trim() || 1;
+          const la = document.getElementById("latitude").value.trim();
+          const lo = document.getElementById("longitude").value.trim();
+          const al = document.getElementById("altitude").value.trim() || 0;
+          const s = document.getElementById("size").value.trim() || 10;
 
           if (!m || !la || !lo) {
-            alert("Please fill all required fields.");
+            alert("Please fill in model URL, latitude, and longitude.");
             return;
           }
 
-          const link = `${location.origin}${location.pathname}?model=${encodeURIComponent(
+          const link = `${window.location.origin}${window.location.pathname}?model=${encodeURIComponent(
             m
-          )}&lat=${la}&lon=${lo}&alt=${al}&size=${si}`;
+          )}&lat=${la}&lon=${lo}&alt=${al}&size=${s}`;
 
-          document.getElementById("shareLink").innerHTML =
-            "✅ Share this link:<br><a href='" +
-            link +
-            "' target='_blank' style='color:#0cf'>" +
-            link +
-            "</a>";
-        };
+          document.getElementById(
+            "linkContainer"
+          ).innerHTML = `<p>Share this link:</p><a href="${link}" target="_blank" style="color:#00bcd4;">${link}</a>`;
+        });
       }
     </script>
   </body>
