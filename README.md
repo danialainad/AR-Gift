@@ -67,10 +67,54 @@ https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Cub
 
 ## Troubleshooting
 
-- **Model not loading**: Check that the GitHub raw URL is correct and accessible
-- **AR not working**: Ensure you're using HTTPS and have granted camera/location permissions
-- **Coordinates not accurate**: Make sure you're using the correct coordinate system (WGS84)
-- **Model too big/small**: Adjust the size parameter to get the desired scale
+### Common Issues and Solutions:
+
+#### **3D Model Not Appearing:**
+1. **Check GPS Accuracy**: 
+   - Ensure you're within 10-50 meters of the target location
+   - GPS accuracy can be ±3-10 meters
+   - Try moving around the area slowly
+
+2. **Verify Coordinates**:
+   - Double-check latitude/longitude values
+   - Use decimal degrees format (e.g., 52.3740, not 52°22'26")
+   - Test with coordinates very close to your current location first
+
+3. **Browser Requirements**:
+   - Use HTTPS (required for camera access)
+   - Enable location permissions
+   - Try Chrome on Android for best results
+   - Ensure WebXR/WebAR support
+
+4. **Model Issues**:
+   - Check that the GitHub raw URL is accessible
+   - Verify the model file is a valid .glb format
+   - Try with a simple test model first
+
+#### **Debugging Steps:**
+1. **Open browser console** (F12) to see error messages
+2. **Check GPS status** - you should see GPS coordinates in the debug text
+3. **Test with nearby coordinates** - place model within 10 meters of your location
+4. **Try different model sizes** - start with 1-5 meters
+5. **Check model URL** - ensure it loads in a new tab
+
+#### **Quick Test:**
+- Use your current GPS location as the target
+- Set height to 0-5 meters
+- Set size to 2-5 meters
+- Use a simple model like the Duck.glb example
+
+### **Model not loading**: 
+Check that the GitHub raw URL is correct and accessible
+
+### **AR not working**: 
+Ensure you're using HTTPS and have granted camera/location permissions
+
+### **Coordinates not accurate**: 
+Make sure you're using the correct coordinate system (WGS84)
+
+### **Model too big/small**: 
+Adjust the size parameter to get the desired scale
 
 ## File Structure
 
