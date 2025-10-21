@@ -1,70 +1,247 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Model Placement</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%); color: #333; min-height: 100vh; padding: 20px; font-family: Arial, sans-serif; }
-        .container { max-width: 600px; margin: 0 auto; }
-        header { text-align: center; padding: 30px 0; color: white; }
-        .input-section { background: white; border-radius: 15px; padding: 25px; margin: 20px 0; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
-        button { background: #6a11cb; color: white; border: none; padding: 15px; border-radius: 8px; width: 100%; font-size: 16px; cursor: pointer; }
-        .generated-link { background: #e8f4fd; padding: 15px; border-radius: 8px; margin-top: 20px; }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Geo AR - Place GLB by GPS</title>
+
+  <!-- A-Frame + AR.js (location-based) -->
+  <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
+  <script src="https://unpkg.com/aframe-ar-nft@3.4.0/dist/aframe-ar-nft.min.js"></script>
+  <!-- AR.js location plugin (gps-entity-place, gps-camera) -->
+  <script src="https://rawcdn.githack.com/AR-js-org/AR.js/3.4.0/aframe/build/aframe-ar.js"></script>
+
+  <style>
+    body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+    #ui {
+      position: fixed;
+      z-index: 999;
+      left: 10px;
+      top: 10px;
+      background: rgba(255,255,255,0.95);
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+      width: 320px;
+    }
+    #ui label { display:block; font-size:12px; margin-top:6px; color:#333 }
+    #ui input { width:100%; padding:6px; font-size:14px; margin-top:4px; box-sizing:border-box }
+    #ui button { margin-top:8px; width:100%; padding:8px; font-size:15px; }
+    #notice { font-size:12px; color:#666; margin-top:6px }
+    #linkOut { font-size:13px; word-break:break-all; margin-top:8px; background:#f6f6f6; padding:6px; border-radius:6px }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>AR Batman Placement</h1>
-            <p>Place Batman in real-world locations</p>
-        </header>
-        
-        <div class="input-section">
-            <div class="form-group">
-                <label for="latitude">Latitude</label>
-                <input type="number" id="latitude" value="40.7829" step="any">
-            </div>
-            <div class="form-group">
-                <label for="longitude">Longitude</label>
-                <input type="number" id="longitude" value="-73.9654" step="any">
-            </div>
-            <div class="form-group">
-                <label for="model-height">Batman Height (meters)</label>
-                <input type="number" id="model-height" value="3" min="0.1" step="0.1">
-            </div>
-            <button id="generate-btn">Generate AR Link</button>
-            
-            <div class="generated-link">
-                <h3>Your AR Link:</h3>
-                <div id="ar-link" style="background: white; padding: 10px; border-radius: 5px; margin-top: 10px; word-break: break-all;">
-                    Click generate to create link
-                </div>
-                <button id="copy-btn" style="margin-top: 10px; background: #2ecc71;">Copy Link</button>
-            </div>
-        </div>
-    </div>
 
-    <script>
-        document.getElementById('generate-btn').addEventListener('click', function() {
-            const lat = document.getElementById('latitude').value;
-            const lng = document.getElementById('longitude').value;
-            const height = document.getElementById('model-height').value;
-            
-            const arViewerUrl = `ar-viewer.html?model=batman.glb&lat=${lat}&lng=${lng}&height=${height}`;
-            document.getElementById('ar-link').textContent = window.location.href.split('/').slice(0, -1).join('/') + '/' + arViewerUrl;
-        });
+  <div id="ui">
+    <strong>Place "batman.glb" in AR (GPS)</strong>
+    <label>Latitude
+      <input id="lat" placeholder="e.g. 52.3740" type="number" step="any">
+    </label>
+    <label>Longitude
+      <input id="lon" placeholder="e.g. 4.8897" type="number" step="any">
+    </label>
+    <label>Height (meters above ground)
+      <input id="alt" placeholder="e.g. 20" type="number" step="any" value="20">
+    </label>
+    <label>Desired model size (meters) — the largest dimension will match this
+      <input id="meters" placeholder="e.g. 20" type="number" step="any" value="20">
+    </label>
 
-        document.getElementById('copy-btn').addEventListener('click', function() {
-            const link = document.getElementById('ar-link').textContent;
-            navigator.clipboard.writeText(link);
-            this.textContent = 'Copied!';
-            setTimeout(() => this.textContent = 'Copy Link', 2000);
-        });
-    </script>
+    <button id="generate">Generate link</button>
+    <div id="notice">Open the generated link on a mobile device (enable camera & location). For best results use Chrome on Android with WebXR support or modern mobile browsers supporting WebAR.</div>
+    <div id="linkOut" style="display:none"></div>
+  </div>
+
+  <!-- A-Frame Scene -->
+  <a-scene
+      vr-mode-ui="enabled: false"
+      embedded
+      renderer="logarithmicDepthBuffer: true;"
+      arjs="sourceType: webcam; debuggingUIEnabled: false;"
+  >
+    <!-- GPS camera - AR.js component -->
+    <a-camera id="gps-camera" gps-camera rotation-reader look-controls></a-camera>
+
+    <!-- placeholder container where we will add our model entity programmatically -->
+    <a-entity id="model-container"></a-entity>
+
+  </a-scene>
+
+<script>
+/*
+Behavior:
+- On generate, create a URL with query params: lat,lon,alt,meters
+- On load, if query params present, create a gps-entity-place with the model
+- Load glTF via THREE.GLTFLoader to compute bounding box and compute uniform scale
+- Then set the entity.object3D.scale to match desired meters
+- Use position="0 ALT 0" on the entity so AR.js places it at the specified altitude
+*/
+
+(function(){
+  const modelFileCandidates = ['batman.glb','batman.gltf']; // will try these in order
+  let modelFile = modelFileCandidates[0];
+
+  // parse query params
+  function getParams(){
+    const p = new URLSearchParams(window.location.search);
+    return {
+      lat: p.get('lat'),
+      lon: p.get('lon'),
+      alt: p.get('alt'),
+      meters: p.get('meters')
+    };
+  }
+
+  // build shareable link
+  document.getElementById('generate').addEventListener('click', ()=>{
+    const lat = document.getElementById('lat').value.trim();
+    const lon = document.getElementById('lon').value.trim();
+    const alt = document.getElementById('alt').value.trim();
+    const meters = document.getElementById('meters').value.trim();
+    if(!lat || !lon || !meters){ alert('Enter latitude, longitude, and desired meters. Altitude defaults to 0 if empty.'); return; }
+    const url = new URL(window.location.href.split('?')[0]);
+    url.searchParams.set('lat', lat);
+    url.searchParams.set('lon', lon);
+    url.searchParams.set('alt', alt || '0');
+    url.searchParams.set('meters', meters);
+    const linkOut = document.getElementById('linkOut');
+    linkOut.style.display='block';
+    linkOut.textContent = url.toString();
+    linkOut.onclick = ()=> navigator.clipboard?.writeText(url.toString());
+  });
+
+  // helper: load GLTF via THREE's loader used inside A-Frame
+  function loadGLTF(path){
+    return new Promise((resolve, reject)=>{
+      const loader = new THREE.GLTFLoader();
+      loader.load(path, gltf => resolve(gltf), undefined, err => reject(err));
+    });
+  }
+
+  async function placeModelFromParams(params){
+    if(!params.lat || !params.lon || !params.meters) return;
+
+    // choose file (attempt both if first fails)
+    async function tryLoadCandidates(){
+      for(const f of modelFileCandidates){
+        try {
+          await fetch(f, { method:'HEAD' }); // check exists
+          modelFile = f;
+          return f;
+        } catch(e){
+          // not found -> try next
+        }
+      }
+      // fallback to first: let loader handle 404s
+      return modelFileCandidates[0];
+    }
+    await tryLoadCandidates();
+
+    const modelPath = modelFile;
+
+    // create entity for gps-entity-place
+    const container = document.getElementById('model-container');
+    // remove existing children if any
+    while(container.firstChild) container.removeChild(container.firstChild);
+
+    const entity = document.createElement('a-entity');
+    entity.setAttribute('gps-entity-place', `latitude: ${params.lat}; longitude: ${params.lon};`);
+    // apply a position Y for altitude (AR.js examples often use position="0 ALT 0")
+    entity.setAttribute('position', `0 ${Number(params.alt||0)} 0`);
+    // add gltf-model attribute but we'll load and then adjust scale after computing bounding box
+    entity.setAttribute('gltf-model', modelPath);
+    // give id so we can refer to it later
+    entity.setAttribute('id','gltf-model-entity');
+
+    // optionally rotate to an initial orientation
+    entity.setAttribute('rotation', '0 0 0');
+
+    container.appendChild(entity);
+
+    // wait for model to load in scene, then compute bounding box and scale
+    // use THREE loader to compute bounding box
+    try {
+      const gltf = await loadGLTF(modelPath);
+      const sceneObj = gltf.scene || gltf.scenes[0];
+      if(!sceneObj){
+        console.warn('No scene in gltf');
+        return;
+      }
+
+      // compute bounding box
+      const box = new THREE.Box3().setFromObject(sceneObj);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z);
+      // if model has zero size (bad export), default maxDim=1
+      const safeMax = (maxDim <= 0 || isNaN(maxDim)) ? 1 : maxDim;
+
+      const desiredMeters = Number(params.meters);
+      const scaleFactor = desiredMeters / safeMax;
+
+      // wait until the entity's object3D exists in the A-Frame scene (frame loop)
+      const afEntity = document.getElementById('gltf-model-entity');
+      const waitForObj = () => new Promise(res=>{
+        const t0 = performance.now();
+        (function check(){
+          if(afEntity && afEntity.object3D && afEntity.object3D.children.length>0){
+            res();
+          } else {
+            if(performance.now() - t0 > 10000){ res(); } else requestAnimationFrame(check);
+          }
+        })();
+      });
+      await waitForObj();
+
+      // set uniform scale on the loaded model object (apply to the first child)
+      // We prefer to scale the actual glTF root so A-Frame's position/rotation remain consistent.
+      const targetObj = afEntity.object3D;
+      targetObj.scale.set(scaleFactor, scaleFactor, scaleFactor);
+
+      // optionally tilt/rotate the model so its base aligns with ground
+      // If model's pivot is not at base, user may need to adjust via additional UI.
+      // Ensure model faces camera initially by rotating to camera heading (best effort)
+      // We'll set up an interval to make it face the camera horizontally
+      const camera = document.getElementById('gps-camera');
+      if(camera){
+        const orientToCamera = () => {
+          try {
+            const camPos = new THREE.Vector3();
+            camera.object3D.getWorldPosition(camPos);
+            const modelPos = new THREE.Vector3();
+            afEntity.object3D.getWorldPosition(modelPos);
+            const dx = camPos.x - modelPos.x;
+            const dz = camPos.z - modelPos.z;
+            const yaw = Math.atan2(dx, dz) * (180/Math.PI);
+            afEntity.object3D.rotation.y = yaw * (Math.PI/180);
+          } catch(e){}
+        };
+        // call once and then on deviceorientation events / every second
+        orientToCamera();
+        const orientInterval = setInterval(orientToCamera, 1500);
+        // clear after 20s to avoid endless work
+        setTimeout(()=> clearInterval(orientInterval), 20000);
+      }
+
+      console.log('Placed model', {modelPath, scaleFactor, safeMax});
+    } catch(err){
+      console.error('Error loading model', err);
+      alert('Failed to load model file. Make sure "batman.glb" or "batman.gltf" exists next to this index.html.');
+    }
+  }
+
+  // on load, parse params and place
+  window.addEventListener('load', ()=>{
+    const params = getParams();
+    if(params.lat && params.lon && params.meters){
+      // hide UI to let AR view be fullscreen (optional)
+      //document.getElementById('ui').style.display='none';
+      placeModelFromParams(params);
+    }
+  });
+
+})();
+</script>
 </body>
 </html>
