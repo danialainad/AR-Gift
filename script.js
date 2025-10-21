@@ -83,25 +83,39 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         const loader = new THREE.GLTFLoader();
-        loader.load(url, function(gltf) {
-            model = gltf.scene;
-            model.scale.set(1, 1, 1);
-            model.position.set(0, 0, 0);
-            model.traverse(function(node) {
-                if (node.isMesh) {
-                    node.castShadow = true;
-                }
+        
+        // Add error handling for CORS issues
+        const managedLoader = (url) => {
+            return new Promise((resolve, reject) => {
+                loader.load(url, resolve, undefined, reject);
             });
-            scene.add(model);
-        }, undefined, function(error) {
-            console.error('Error loading model:', error);
-            // Create a fallback cube if model fails to load
-            const geometry = new THREE.BoxGeometry(1, 1, 1);
-            const material = new THREE.MeshLambertMaterial({ color: 0x6a11cb });
-            model = new THREE.Mesh(geometry, material);
-            model.castShadow = true;
-            scene.add(model);
-        });
+        };
+        
+        managedLoader(url)
+            .then(gltf => {
+                model = gltf.scene;
+                model.scale.set(1, 1, 1);
+                model.position.set(0, 0, 0);
+                model.traverse(function(node) {
+                    if (node.isMesh) {
+                        node.castShadow = true;
+                    }
+                });
+                scene.add(model);
+            })
+            .catch(error => {
+                console.error('Error loading model:', error);
+                // Create a fallback cube if model fails to load
+                createFallbackModel();
+            });
+    }
+    
+    function createFallbackModel() {
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const material = new THREE.MeshLambertMaterial({ color: 0x6a11cb });
+        model = new THREE.Mesh(geometry, material);
+        model.castShadow = true;
+        scene.add(model);
     }
     
     function generateQRCode(text) {
@@ -112,7 +126,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
-        // Simple QR code simulation (in a real app, use a QR code library)
+        // Simple QR code simulation
         ctx.fillStyle = 'black';
         ctx.font = '12px Arial';
         ctx.textAlign = 'center';
@@ -148,11 +162,10 @@ document.addEventListener('DOMContentLoaded', function() {
         // Update 3D preview with new model
         loadModel(modelUrl);
         
-        // Generate AR link
-        const baseUrl = window.location.href.split('/').slice(0, -1).join('/');
-        const arViewerUrl = `${baseUrl}/ar-viewer.html?model=${encodeURIComponent(modelUrl)}&lat=${lat}&lng=${lng}&height=${modelHeight}&placement=${placementHeight}&name=${encodeURIComponent(modelName)}&location=${encodeURIComponent(locationDesc)}`;
+        // Generate AR link - use relative path for GitHub Pages
+        const arViewerUrl = `ar-viewer.html?model=${encodeURIComponent(modelUrl)}&lat=${lat}&lng=${lng}&height=${modelHeight}&placement=${placementHeight}&name=${encodeURIComponent(modelName)}&location=${encodeURIComponent(locationDesc)}`;
         
-        arLink.textContent = arViewerUrl;
+        arLink.textContent = window.location.href.split('/').slice(0, -1).join('/') + '/' + arViewerUrl;
         
         // Generate QR code
         generateQRCode(arViewerUrl);
@@ -184,5 +197,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Auto-generate link on page load with default values
-    generateBtn.click();
+    setTimeout(() => {
+        generateBtn.click();
+    }, 1000);
 });
