@@ -5,103 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AR View</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            background: #000;
-            overflow: hidden;
-            width: 100vw;
-            height: 100vh;
-            font-family: Arial, sans-serif;
-        }
-        
-        #camera-container {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 1;
-            background: #000;
-        }
-        
-        #camera-video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        
-        #model-canvas {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 2;
-            pointer-events: none;
-        }
-        
-        #loading {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: #000;
-            color: white;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 100;
-            text-align: center;
-            padding: 20px;
-        }
-        
-        .spinner {
-            border: 4px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top: 4px solid white;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin-bottom: 20px;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .hidden {
-            display: none;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; overflow: hidden; width: 100vw; height: 100vh; }
+        #camera-video { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+        #model-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+        #loading { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: white; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
+        .spinner { border: 4px solid rgba(255,255,255,0.3); border-radius: 50%; border-top: 4px solid white; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
-    <div id="camera-container">
-        <video id="camera-video" autoplay playsinline muted></video>
-    </div>
+    <video id="camera-video" autoplay playsinline muted></video>
     <canvas id="model-canvas"></canvas>
-    
     <div id="loading">
         <div class="spinner"></div>
-        <div>Loading AR Experience...</div>
-        <div id="loading-status" style="margin-top: 10px; font-size: 14px; opacity: 0.8;">Starting</div>
+        <div id="loading-status">Starting Camera...</div>
     </div>
 
+    <!-- Use CDN that includes GLTFLoader in main Three.js -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/loaders/GLTFLoader.js"></script>
-    
+
     <script>
         let scene, camera, renderer, model;
-        let userHeading = 0;
-        let isLoaded = false;
-
         const video = document.getElementById('camera-video');
         const canvas = document.getElementById('model-canvas');
         const loading = document.getElementById('loading');
@@ -109,265 +36,102 @@
 
         async function init() {
             try {
-                updateStatus('Requesting camera access...');
+                // 1. Start camera
+                loadingStatus.textContent = 'Starting camera...';
                 await startCamera();
                 
-                updateStatus('Camera ready! Setting up 3D...');
+                // 2. Setup Three.js
+                loadingStatus.textContent = 'Setting up 3D...';
                 setupThreeJS();
                 
-                updateStatus('Loading Batman model...');
-                await loadBatmanModel();
+                // 3. Load Batman model
+                loadingStatus.textContent = 'Loading Batman...';
+                await loadModel();
                 
-                updateStatus('Setting up device orientation...');
-                setupOrientation();
-                
-                updateStatus('Starting AR experience...');
+                // 4. Start AR
+                loadingStatus.textContent = 'Ready!';
                 startAnimation();
-                
-                // Hide loading and show everything
-                setTimeout(() => {
-                    loading.classList.add('hidden');
-                    isLoaded = true;
-                }, 500);
+                loading.classList.add('hidden');
                 
             } catch (error) {
-                updateStatus('Error: ' + error.message);
-                console.error('AR setup failed:', error);
+                loadingStatus.textContent = 'Error: ' + error.message;
             }
-        }
-
-        function updateStatus(message) {
-            loadingStatus.textContent = message;
-            console.log('Status:', message);
         }
 
         async function startCamera() {
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                throw new Error('Camera not supported in this browser');
-            }
-
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: 'environment',
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }
-                });
-                
-                video.srcObject = stream;
-                
-                return new Promise((resolve) => {
-                    if (video.readyState >= 2) {
-                        resolve();
-                    } else {
-                        video.addEventListener('loadeddata', resolve);
-                        setTimeout(resolve, 1000);
-                    }
-                });
-                
-            } catch (error) {
-                throw new Error('Camera access denied. Please allow camera permissions.');
-            }
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment' }
+            });
+            video.srcObject = stream;
+            return new Promise(resolve => video.onloadeddata = resolve);
         }
 
         function setupThreeJS() {
-            // Scene
             scene = new THREE.Scene();
-            
-            // Camera
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(0, 1.6, 0);
-            
-            // Renderer
-            renderer = new THREE.WebGLRenderer({
-                canvas: canvas,
-                alpha: true,
-                antialias: true
-            });
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setClearColor(0x000000, 0);
             
-            // Lights
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
-            scene.add(ambientLight);
-            
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
-            directionalLight.position.set(10, 10, 5);
-            scene.add(directionalLight);
+            directionalLight.position.set(5, 10, 5);
+            scene.add(ambientLight, directionalLight);
         }
 
-        function loadBatmanModel() {
+        function loadModel() {
             return new Promise((resolve) => {
-                // Get parameters from URL or use defaults
+                // Get your Batman model URL from parameters or use direct path
                 const urlParams = new URLSearchParams(window.location.search);
-                let modelUrl = urlParams.get('model');
-                const height = parseFloat(urlParams.get('height')) || 3;
-                const placementHeight = parseFloat(urlParams.get('placement')) || 0;
-
-                // If no model URL provided in parameters, use the local batman.glb
-                if (!modelUrl) {
-                    // Use relative path to batman.glb in the same directory
-                    modelUrl = 'batman.glb';
-                }
-
-                updateStatus('Loading: ' + modelUrl);
-
-                // Use GLTFLoader to load the model
+                let modelUrl = urlParams.get('model') || 'batman.glb';
+                
+                // Use the GLTFLoader that's now properly loaded
                 const loader = new THREE.GLTFLoader();
                 
-                loader.load(
-                    modelUrl,
-                    (gltf) => {
-                        model = gltf.scene;
-                        updateStatus('Batman model loaded!');
-                        
-                        // Scale the model
-                        const box = new THREE.Box3().setFromObject(model);
-                        const size = box.getSize(new THREE.Vector3());
-                        const scale = height / size.y;
-                        
-                        model.scale.set(scale, scale, scale);
-                        model.position.set(0, placementHeight, -8);
-                        
-                        // Enable shadows
-                        model.traverse((child) => {
-                            if (child.isMesh) {
-                                child.castShadow = true;
-                                child.receiveShadow = true;
-                            }
-                        });
-                        
-                        scene.add(model);
-                        resolve();
-                    },
-                    (progress) => {
-                        if (progress.lengthComputable) {
-                            const percent = Math.round((progress.loaded / progress.total) * 100);
-                            updateStatus(`Loading Batman... ${percent}%`);
-                        } else {
-                            updateStatus('Downloading Batman model...');
-                        }
-                    },
-                    (error) => {
-                        console.error('Failed to load Batman model:', error);
-                        updateStatus('Batman model not found. Using placeholder.');
-                        createPlaceholderModel(height, placementHeight);
-                        resolve();
-                    }
-                );
+                loader.load(modelUrl, (gltf) => {
+                    model = gltf.scene;
+                    
+                    // Scale and position
+                    model.scale.set(3, 3, 3);
+                    model.position.set(0, 0, -5);
+                    
+                    scene.add(model);
+                    resolve();
+                    
+                }, undefined, (error) => {
+                    console.error('Model load failed:', error);
+                    // Create simple cube as fallback
+                    const geometry = new THREE.BoxGeometry(2, 3, 1);
+                    const material = new THREE.MeshLambertMaterial({ color: 0x0000ff });
+                    model = new THREE.Mesh(geometry, material);
+                    model.position.set(0, 0, -5);
+                    scene.add(model);
+                    resolve();
+                });
             });
-        }
-
-        function createPlaceholderModel(height, placementHeight) {
-            // Create a Batman symbol as placeholder
-            const group = new THREE.Group();
-            
-            // Batman symbol body
-            const bodyGeometry = new THREE.SphereGeometry(0.5, 8, 6);
-            const bodyMaterial = new THREE.MeshLambertMaterial({ 
-                color: 0x000000,
-                emissive: 0x222222
-            });
-            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-            group.add(body);
-            
-            // Batman wings
-            const wingGeometry = new THREE.ConeGeometry(0.3, 1, 4);
-            const wingMaterial = new THREE.MeshLambertMaterial({ 
-                color: 0x000000,
-                emissive: 0x111111
-            });
-            
-            // Left wing
-            const leftWing = new THREE.Mesh(wingGeometry, wingMaterial);
-            leftWing.position.set(-0.7, 0, 0);
-            leftWing.rotation.z = Math.PI / 4;
-            group.add(leftWing);
-            
-            // Right wing
-            const rightWing = new THREE.Mesh(wingGeometry, wingMaterial);
-            rightWing.position.set(0.7, 0, 0);
-            rightWing.rotation.z = -Math.PI / 4;
-            group.add(rightWing);
-            
-            // Base
-            const baseGeometry = new THREE.CylinderGeometry(1, 1, 0.1, 8);
-            const baseMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
-            const base = new THREE.Mesh(baseGeometry, baseMaterial);
-            base.position.y = -height/2;
-            group.add(base);
-
-            model = group;
-            model.position.set(0, placementHeight, -8);
-            scene.add(model);
-        }
-
-        function setupOrientation() {
-            if (window.DeviceOrientationEvent) {
-                const handleOrientation = (event) => {
-                    if (event.alpha !== null) {
-                        userHeading = event.alpha;
-                    }
-                };
-
-                if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    DeviceOrientationEvent.requestPermission()
-                        .then(permissionState => {
-                            if (permissionState === 'granted') {
-                                window.addEventListener('deviceorientation', handleOrientation);
-                            }
-                        })
-                        .catch(console.error);
-                } else {
-                    window.addEventListener('deviceorientation', handleOrientation);
-                }
-            }
         }
 
         function startAnimation() {
             function animate() {
                 requestAnimationFrame(animate);
-                
-                if (model && isLoaded) {
-                    // Rotate model based on compass
-                    model.rotation.y = userHeading * (Math.PI / 180);
-                    
-                    // Gentle floating animation
-                    model.position.y += Math.sin(Date.now() * 0.002) * 0.002;
+                if (model) {
+                    model.rotation.y += 0.01;
                 }
-                
                 renderer.render(scene, camera);
             }
-            
             animate();
         }
 
-        // Handle window resize
-        window.addEventListener('resize', () => {
-            if (camera && renderer) {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            }
-        });
-
+        // Start when page loads
+        document.addEventListener('DOMContentLoaded', init);
+        
         // Double tap to exit
         let lastTap = 0;
         document.addEventListener('click', () => {
-            const currentTime = new Date().getTime();
-            if (currentTime - lastTap < 300) {
-                if (window.history.length > 1) {
-                    window.history.back();
-                } else {
-                    window.close();
-                }
-            }
-            lastTap = currentTime;
+            const now = Date.now();
+            if (now - lastTap < 300) window.history.back();
+            lastTap = now;
         });
-
-        // Start the AR experience
-        document.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
 </html>
