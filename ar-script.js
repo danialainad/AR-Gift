@@ -6,252 +6,275 @@ document.addEventListener('DOMContentLoaded', function() {
     const targetLng = parseFloat(urlParams.get('lng'));
     const height = parseFloat(urlParams.get('height'));
     const placementHeight = parseFloat(urlParams.get('placement'));
-    const modelName = urlParams.get('name');
-    const locationDesc = urlParams.get('location');
-    
+
     // DOM elements
     const arContainer = document.getElementById('ar-container');
     const loadingElement = document.getElementById('loading');
-    const errorElement = document.getElementById('error');
-    const errorMessage = document.getElementById('error-message');
+    const permissionPrompt = document.getElementById('permission-prompt');
     const loadingStatus = document.getElementById('loading-status');
-    const closeButton = document.getElementById('close-ar');
-    const retryButton = document.getElementById('retry-button');
-    const exitButton = document.getElementById('exit-button');
-    const modelNameElement = document.getElementById('model-name');
-    const modelLocationElement = document.getElementById('model-location');
-    const modelSizeElement = document.getElementById('model-size');
-    const distanceElement = document.getElementById('distance');
-    
-    // Set UI information
-    modelNameElement.textContent = modelName || '3D Model';
-    modelLocationElement.textContent = locationDesc || `Location: ${targetLat}, ${targetLng}`;
-    modelSizeElement.textContent = `Size: ${height}m tall`;
-    
+    const startCameraButton = document.getElementById('start-camera');
+
     // Three.js variables
     let scene, camera, renderer, model;
+    let videoTexture, video;
     let userPosition = null;
-    let userHeading = 0; // Compass heading in degrees
+    let userHeading = 0;
     let deviceOrientation = { alpha: 0, beta: 0, gamma: 0 };
     let isCompassAvailable = false;
-    
+
     // Initialize the AR experience
-    function init() {
-        loadingStatus.textContent = 'Setting up scene...';
+    async function init() {
+        loadingStatus.textContent = 'Requesting camera access...';
         
+        try {
+            // First, get camera access
+            await setupCamera();
+            
+            // Then setup Three.js scene
+            setupScene();
+            
+            // Load the 3D model
+            await loadModel();
+            
+            // Setup geolocation and orientation
+            setupGeolocation();
+            setupDeviceOrientation();
+            
+            // Start animation loop
+            animate();
+            
+            // Hide loading screen
+            loadingElement.classList.add('hidden');
+            
+        } catch (error) {
+            console.error('Initialization error:', error);
+            loadingStatus.textContent = 'Error: ' + error.message;
+        }
+    }
+
+    async function setupCamera() {
+        // Check if getUserMedia is available
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error('Camera API not supported in this browser');
+        }
+
+        try {
+            // Request camera access
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: 'environment', // Use back camera
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            });
+
+            // Create video element
+            video = document.createElement('video');
+            video.srcObject = stream;
+            video.playsInline = true;
+            video.play();
+
+            // Wait for video to be ready
+            await new Promise((resolve) => {
+                video.addEventListener('loadedmetadata', resolve);
+            });
+
+            // Create video texture
+            videoTexture = new THREE.VideoTexture(video);
+            videoTexture.minFilter = THREE.LinearFilter;
+            videoTexture.magFilter = THREE.LinearFilter;
+            videoTexture.format = THREE.RGBFormat;
+
+        } catch (error) {
+            console.error('Camera error:', error);
+            // Show permission prompt
+            permissionPrompt.classList.remove('hidden');
+            loadingElement.classList.add('hidden');
+            throw new Error('Camera access denied or unavailable');
+        }
+    }
+
+    function setupScene() {
         // Create scene
         scene = new THREE.Scene();
-        
-        // Create camera
-        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+        // Create camera - match video aspect ratio
+        const aspectRatio = video.videoWidth / video.videoHeight;
+        camera = new THREE.PerspectiveCamera(60, aspectRatio, 0.1, 1000);
         scene.add(camera);
-        
+
         // Create renderer
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setClearColor(0x000000, 0);
         arContainer.appendChild(renderer.domElement);
-        
-        // Add ambient light
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+
+        // Create background with camera feed
+        const backgroundGeometry = new THREE.PlaneGeometry(2, 2);
+        const backgroundMaterial = new THREE.MeshBasicMaterial({
+            map: videoTexture,
+            transparent: true,
+            opacity: 1
+        });
+        const background = new THREE.Mesh(backgroundGeometry, backgroundMaterial);
+        background.position.z = -1; // Place behind everything
+        scene.add(background);
+
+        // Add lights for the 3D model
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
         scene.add(ambientLight);
-        
-        // Add directional light
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(10, 10, 5);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        directionalLight.position.set(5, 10, 7);
         scene.add(directionalLight);
-        
-        // Load the 3D model
-        loadModel();
-        
-        // Start the render loop
-        animate();
-        
-        // Set up geolocation and orientation tracking
-        setupGeolocation();
-        setupDeviceOrientation();
-        
-        // Hide loading screen after a short delay
-        setTimeout(() => {
-            if (model) {
-                loadingElement.classList.add('hidden');
-            }
-        }, 3000);
     }
-    
-    function loadModel() {
+
+    async function loadModel() {
         loadingStatus.textContent = 'Loading 3D model...';
-        
-        const loader = new THREE.GLTFLoader();
-        
-        // Use a proxy to handle CORS issues with GitHub raw URLs
-        const loadWithCORSWorkaround = (url) => {
-            return new Promise((resolve, reject) => {
-                // Try direct load first
-                loader.load(url, resolve, undefined, (error) => {
-                    console.log('Direct load failed, trying CORS proxy:', error);
-                    // If direct load fails, try with a CORS proxy
-                    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-                    loader.load(proxyUrl, resolve, undefined, reject);
+
+        return new Promise((resolve, reject) => {
+            const loader = new THREE.GLTFLoader();
+            
+            // Use CORS proxy for GitHub raw URLs
+            const loadWithCORSWorkaround = (url) => {
+                return new Promise((resolveLoad, rejectLoad) => {
+                    loader.load(url, resolveLoad, undefined, (error) => {
+                        console.log('Direct load failed, trying CORS proxy:', error);
+                        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+                        loader.load(proxyUrl, resolveLoad, undefined, rejectLoad);
+                    });
                 });
-            });
-        };
-        
-        loadWithCORSWorkaround(modelUrl)
-            .then(gltf => {
-                model = gltf.scene;
-                
-                // Scale the model based on the specified height
-                const box = new THREE.Box3().setFromObject(model);
-                const modelHeight = box.max.y - box.min.y;
-                const scale = height / modelHeight;
-                model.scale.set(scale, scale, scale);
-                
-                // Position will be updated based on user location and direction
-                model.position.set(0, placementHeight, -20);
-                
-                // Add the model to the scene
-                scene.add(model);
-                
-                loadingStatus.textContent = 'Model loaded successfully!';
-                
-                // Hide loading after model is loaded
-                setTimeout(() => {
-                    loadingElement.classList.add('hidden');
-                }, 1000);
-            })
-            .catch(error => {
-                console.error('Error loading model:', error);
-                // Create a fallback model
-                createFallbackModel();
-                loadingStatus.textContent = 'Using fallback model (original failed to load)';
-                
-                setTimeout(() => {
-                    loadingElement.classList.add('hidden');
-                }, 2000);
-            });
+            };
+
+            loadWithCORSWorkaround(modelUrl)
+                .then(gltf => {
+                    model = gltf.scene;
+                    
+                    // Scale the model based on the specified height
+                    const box = new THREE.Box3().setFromObject(model);
+                    const modelHeight = box.max.y - box.min.y;
+                    const scale = height / modelHeight;
+                    model.scale.set(scale, scale, scale);
+                    
+                    // Initial position - will be updated based on location
+                    model.position.set(0, placementHeight, -5);
+                    
+                    // Add the model to the scene
+                    scene.add(model);
+                    
+                    loadingStatus.textContent = 'Model loaded! Getting location...';
+                    resolve();
+                })
+                .catch(error => {
+                    console.error('Error loading model:', error);
+                    // Create a fallback model
+                    createFallbackModel();
+                    loadingStatus.textContent = 'Using fallback model';
+                    resolve();
+                });
+        });
     }
-    
+
     function createFallbackModel() {
-        // Create a simple cube as fallback
-        const geometry = new THREE.BoxGeometry(2, height, 1);
+        const geometry = new THREE.BoxGeometry(1, height, 1);
         const material = new THREE.MeshLambertMaterial({ 
             color: 0x6a11cb,
             transparent: true,
-            opacity: 0.8
+            opacity: 0.9
         });
         model = new THREE.Mesh(geometry, material);
-        model.position.set(0, placementHeight, -20);
+        model.position.set(0, placementHeight, -5);
         scene.add(model);
     }
-    
+
     function setupGeolocation() {
         if (!navigator.geolocation) {
-            console.warn('Geolocation is not supported by your browser.');
-            distanceElement.textContent = 'Geolocation not supported';
+            console.warn('Geolocation not supported');
+            updateModelPosition(10, 0); // Default position
             return;
         }
-        
-        loadingStatus.textContent = 'Getting your location...';
-        
+
         const options = {
             enableHighAccuracy: true,
-            timeout: 10000,
+            timeout: 15000,
             maximumAge: 0
         };
-        
+
         navigator.geolocation.watchPosition(
-            function(position) {
+            (position) => {
                 userPosition = {
                     lat: position.coords.latitude,
-                    lng: position.coords.longitude,
-                    accuracy: position.coords.accuracy
+                    lng: position.coords.longitude
                 };
-                
+
                 // Calculate distance and bearing to target
                 const { distance, bearing } = calculateDistanceAndBearing(
                     userPosition.lat, userPosition.lng,
                     targetLat, targetLng
                 );
-                
-                distanceElement.textContent = `${distance.toFixed(1)} meters away`;
-                
-                // Update model position based on user location and direction
+
+                // Update model position
                 updateModelPosition(distance, bearing);
             },
-            function(error) {
-                console.error('Geolocation error:', error);
-                distanceElement.textContent = 'Location unavailable';
-                // Use default position if geolocation fails
-                updateModelPosition(50, 0);
+            (error) => {
+                console.warn('Geolocation error:', error);
+                updateModelPosition(10, 0); // Default position
             },
             options
         );
     }
-    
+
     function setupDeviceOrientation() {
         if (!window.DeviceOrientationEvent) {
             console.warn('Device orientation not supported');
-            loadingStatus.textContent += ' | Orientation: Not supported';
             return;
         }
-        
-        // Request permission for iOS 13+ devices
+
+        // Request permission for iOS 13+
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
             DeviceOrientationEvent.requestPermission()
                 .then(permissionState => {
                     if (permissionState === 'granted') {
                         window.addEventListener('deviceorientation', handleDeviceOrientation);
                         isCompassAvailable = true;
-                        loadingStatus.textContent += ' | Orientation: Enabled';
-                    } else {
-                        console.warn('Device orientation permission denied');
-                        loadingStatus.textContent += ' | Orientation: Denied';
                     }
                 })
                 .catch(console.error);
         } else {
-            // For non-iOS devices
             window.addEventListener('deviceorientation', handleDeviceOrientation);
             isCompassAvailable = true;
-            loadingStatus.textContent += ' | Orientation: Enabled';
         }
-        
-        // Also listen for compass heading
-        window.addEventListener('deviceorientation', handleCompass);
     }
-    
+
     function handleDeviceOrientation(event) {
         deviceOrientation = {
-            alpha: event.alpha || 0, // Compass direction (0-360)
-            beta: event.beta || 0,   // Front-back tilt (-180 to 180)
-            gamma: event.gamma || 0  // Left-right tilt (-90 to 90)
+            alpha: event.alpha || 0,
+            beta: event.beta || 0,
+            gamma: event.gamma || 0
         };
-    }
-    
-    function handleCompass(event) {
+        
+        // Update compass heading
         if (event.alpha !== null) {
-            userHeading = event.alpha; // Compass heading in degrees
+            userHeading = event.alpha;
         }
     }
-    
+
     function calculateDistanceAndBearing(lat1, lon1, lat2, lon2) {
-        const R = 6371000; // Earth's radius in meters
+        const R = 6371000;
         
-        // Convert to radians
         const φ1 = lat1 * Math.PI / 180;
         const φ2 = lat2 * Math.PI / 180;
         const Δφ = (lat2 - lat1) * Math.PI / 180;
         const Δλ = (lon2 - lon1) * Math.PI / 180;
         
-        // Haversine formula for distance
+        // Distance
         const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
                  Math.cos(φ1) * Math.cos(φ2) *
                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         const distance = R * c;
         
-        // Bearing calculation
+        // Bearing
         const y = Math.sin(Δλ) * Math.cos(φ2);
         const x = Math.cos(φ1) * Math.sin(φ2) -
                  Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
@@ -259,143 +282,91 @@ document.addEventListener('DOMContentLoaded', function() {
         
         return {
             distance: distance,
-            bearing: (bearing + 360) % 360 // Normalize to 0-360
+            bearing: (bearing + 360) % 360
         };
     }
-    
+
     function updateModelPosition(distance, bearing) {
         if (!model) return;
         
-        // Convert to relative position in front of camera
-        const maxDistance = 100; // Maximum visible distance in AR
-        const visibleDistance = Math.min(distance, maxDistance);
-        
-        // Calculate angle between user's heading and target bearing
+        // Convert to relative position
+        const visibleDistance = Math.min(distance, 50) / 10;
         const relativeAngle = (bearing - userHeading + 360) % 360;
-        
-        // Convert to radians and calculate position
         const angleRad = (relativeAngle * Math.PI) / 180;
         
-        // Position model in front of camera based on relative angle
-        const x = Math.sin(angleRad) * (visibleDistance / 10);
-        const z = -Math.cos(angleRad) * (visibleDistance / 10);
+        // Position model based on direction
+        const x = Math.sin(angleRad) * visibleDistance;
+        const z = -Math.cos(angleRad) * visibleDistance;
         
-        // Update model position
         model.position.set(x, placementHeight, z);
         
-        // Rotate model to face user
+        // Make model face user
         model.lookAt(0, placementHeight, 0);
         
-        // Adjust scale based on distance (further away = smaller)
-        const scaleFactor = Math.max(0.1, 1 - (distance / 200));
-        const box = new THREE.Box3().setFromObject(model);
-        const modelHeight = box.max.y - box.min.y;
-        const baseScale = height / modelHeight;
-        model.scale.set(baseScale * scaleFactor, baseScale * scaleFactor, baseScale * scaleFactor);
-        
-        // Update UI with direction information
-        updateDirectionUI(relativeAngle, distance);
-    }
-    
-    function updateDirectionUI(relativeAngle, distance) {
-        let directionText = '';
-        
-        if (distance < 10) {
-            directionText = 'You are very close! Look around.';
-        } else {
-            // Convert relative angle to cardinal direction
-            if (relativeAngle > 337.5 || relativeAngle < 22.5) {
-                directionText = 'Model is North of you';
-            } else if (relativeAngle >= 22.5 && relativeAngle < 67.5) {
-                directionText = 'Model is Northeast of you';
-            } else if (relativeAngle >= 67.5 && relativeAngle < 112.5) {
-                directionText = 'Model is East of you';
-            } else if (relativeAngle >= 112.5 && relativeAngle < 157.5) {
-                directionText = 'Model is Southeast of you';
-            } else if (relativeAngle >= 157.5 && relativeAngle < 202.5) {
-                directionText = 'Model is South of you';
-            } else if (relativeAngle >= 202.5 && relativeAngle < 247.5) {
-                directionText = 'Model is Southwest of you';
-            } else if (relativeAngle >= 247.5 && relativeAngle < 292.5) {
-                directionText = 'Model is West of you';
-            } else {
-                directionText = 'Model is Northwest of you';
-            }
-            
-            // Add arrow indicator
-            const arrow = getDirectionArrow(relativeAngle);
-            directionText = `${arrow} ${directionText}`;
+        // Scale based on distance
+        const scaleFactor = Math.max(0.3, 1 - (distance / 100));
+        if (model.scale) {
+            model.scale.setScalar(scaleFactor);
         }
-        
-        // Update distance element with direction info
-        distanceElement.innerHTML = `${distance.toFixed(1)} meters away<br><small>${directionText}</small>`;
     }
-    
-    function getDirectionArrow(angle) {
-        // Return arrow emoji based on direction
-        if (angle > 337.5 || angle < 22.5) return '⬆️';
-        if (angle >= 22.5 && angle < 67.5) return '↗️';
-        if (angle >= 67.5 && angle < 112.5) return '➡️';
-        if (angle >= 112.5 && angle < 157.5) return '↘️';
-        if (angle >= 157.5 && angle < 202.5) return '⬇️';
-        if (angle >= 202.5 && angle < 247.5) return '↙️';
-        if (angle >= 247.5 && angle < 292.5) return '⬅️';
-        return '↖️';
-    }
-    
+
     function animate() {
         requestAnimationFrame(animate);
         
-        // If we have device orientation data, rotate the camera
+        // Update camera rotation based on device orientation
         if (isCompassAvailable && deviceOrientation.alpha !== null) {
-            // Convert device orientation to camera rotation
             camera.rotation.y = -deviceOrientation.alpha * (Math.PI / 180);
         }
         
         renderer.render(scene, camera);
     }
-    
-    function showError(message) {
-        errorMessage.textContent = message;
-        errorElement.classList.remove('hidden');
-        loadingElement.classList.add('hidden');
-    }
-    
-    // Event listeners
-    closeButton.addEventListener('click', function() {
-        if (window.history.length > 1) {
-            window.history.back();
-        } else {
-            window.close();
+
+    // Handle window resize
+    window.addEventListener('resize', function() {
+        if (camera && video) {
+            camera.aspect = video.videoWidth / video.videoHeight;
+            camera.updateProjectionMatrix();
+        }
+        if (renderer) {
+            renderer.setSize(window.innerWidth, window.innerHeight);
         }
     });
-    
-    retryButton.addEventListener('click', function() {
-        errorElement.classList.add('hidden');
+
+    // Handle permission prompt button
+    startCameraButton.addEventListener('click', function() {
+        permissionPrompt.classList.add('hidden');
         loadingElement.classList.remove('hidden');
         init();
     });
-    
-    exitButton.addEventListener('click', function() {
-        if (window.history.length > 1) {
-            window.history.back();
+
+    // Double-tap to exit (hidden gesture)
+    let tapCount = 0;
+    let lastTap = 0;
+    arContainer.addEventListener('click', function() {
+        const currentTime = new Date().getTime();
+        const tapLength = currentTime - lastTap;
+        
+        if (tapCount === 0 || tapLength < 300) {
+            tapCount++;
+            lastTap = currentTime;
+            
+            if (tapCount === 2) {
+                // Double-tap detected - exit
+                if (window.history.length > 1) {
+                    window.history.back();
+                } else {
+                    window.close();
+                }
+            }
         } else {
-            window.close();
+            tapCount = 1;
+            lastTap = currentTime;
         }
+        
+        // Reset tap count after 1 second
+        setTimeout(() => { tapCount = 0; }, 1000);
     });
-    
-    // Handle window resize
-    window.addEventListener('resize', function() {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-    
-    // Add instructions for iOS
-    if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) {
-        loadingStatus.textContent = 'iOS: You may need to allow motion permissions';
-    }
-    
-    // Start the AR experience
+
+    // Start initialization
     init();
 });
