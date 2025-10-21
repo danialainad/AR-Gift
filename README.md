@@ -92,3 +92,13 @@ The application uses:
 ## License
 
 This project is open source and available under the MIT License.
+
+## Live Demo
+
+🌐 **Try the live application**: [https://danialainad.github.io/AR-Gift/](https://danialainad.github.io/AR-Gift/)
+
+## Recent Updates
+
+- ✅ Added GitHub Pages deployment
+- ✅ Enhanced mobile responsiveness
+- ✅ Improved error handling
