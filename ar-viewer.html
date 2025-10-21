@@ -64,7 +64,7 @@
             display: none;
         }
         
-        #permission-prompt {
+        #error-message {
             position: fixed;
             top: 0;
             left: 0;
@@ -80,7 +80,7 @@
             padding: 30px;
         }
         
-        #permission-prompt button {
+        #error-message button {
             background: #6a11cb;
             color: white;
             border: none;
@@ -90,10 +90,6 @@
             margin-top: 20px;
             cursor: pointer;
         }
-        
-        #permission-prompt button:hover {
-            background: #2575fc;
-        }
     </style>
 </head>
 <body>
@@ -102,14 +98,13 @@
     <div id="loading">
         <div class="spinner"></div>
         <h2>Loading AR Experience</h2>
-        <p id="loading-status">Initializing camera and location...</p>
+        <p id="loading-status">Starting camera...</p>
     </div>
     
-    <div id="permission-prompt" class="hidden">
-        <h2>Camera Access Required</h2>
-        <p>This AR experience needs camera access to work properly.</p>
-        <p>Please allow camera permissions when prompted.</p>
-        <button id="start-camera">Start Camera</button>
+    <div id="error-message" class="hidden">
+        <h2 id="error-title">Camera Access Required</h2>
+        <p id="error-text">Please allow camera permissions to view the AR experience.</p>
+        <button id="retry-button">Try Again</button>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
