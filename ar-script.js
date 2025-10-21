@@ -73,13 +73,14 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Hide loading screen after a short delay
         setTimeout(() => {
-            loadingElement.classList.add('hidden');
-        }, 2000);
+            if (model) {
+                loadingElement.classList.add('hidden');
+            }
+        }, 3000);
     }
     
     function calculateModelPosition() {
         // For demo purposes, we'll place the model 10 meters in front of the user
-        // In a real app, you would calculate the position based on the target coordinates
         modelPosition = new THREE.Vector3(0, placementHeight, -10);
     }
     
@@ -87,31 +88,72 @@ document.addEventListener('DOMContentLoaded', function() {
         loadingStatus.textContent = 'Loading 3D model...';
         
         const loader = new THREE.GLTFLoader();
-        loader.load(modelUrl, function(gltf) {
-            model = gltf.scene;
-            
-            // Scale the model based on the specified height
-            const box = new THREE.Box3().setFromObject(model);
-            const modelHeight = box.max.y - box.min.y;
-            const scale = height / modelHeight;
-            model.scale.set(scale, scale, scale);
-            
-            // Position the model
-            model.position.copy(modelPosition);
-            
-            // Add the model to the scene
-            scene.add(model);
-            
-            loadingStatus.textContent = 'Model loaded!';
-        }, undefined, function(error) {
-            console.error('Error loading model:', error);
-            showError('Failed to load the 3D model. Please check the model URL.');
+        
+        // Use a proxy to handle CORS issues with GitHub raw URLs
+        const loadWithCORSWorkaround = (url) => {
+            return new Promise((resolve, reject) => {
+                // Try direct load first
+                loader.load(url, resolve, undefined, (error) => {
+                    console.log('Direct load failed, trying CORS proxy:', error);
+                    // If direct load fails, try with a CORS proxy
+                    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+                    loader.load(proxyUrl, resolve, undefined, reject);
+                });
+            });
+        };
+        
+        loadWithCORSWorkaround(modelUrl)
+            .then(gltf => {
+                model = gltf.scene;
+                
+                // Scale the model based on the specified height
+                const box = new THREE.Box3().setFromObject(model);
+                const modelHeight = box.max.y - box.min.y;
+                const scale = height / modelHeight;
+                model.scale.set(scale, scale, scale);
+                
+                // Position the model
+                model.position.copy(modelPosition);
+                
+                // Add the model to the scene
+                scene.add(model);
+                
+                loadingStatus.textContent = 'Model loaded successfully!';
+                
+                // Hide loading after model is loaded
+                setTimeout(() => {
+                    loadingElement.classList.add('hidden');
+                }, 1000);
+            })
+            .catch(error => {
+                console.error('Error loading model:', error);
+                // Create a fallback model
+                createFallbackModel();
+                loadingStatus.textContent = 'Using fallback model (original failed to load)';
+                
+                setTimeout(() => {
+                    loadingElement.classList.add('hidden');
+                }, 2000);
+            });
+    }
+    
+    function createFallbackModel() {
+        // Create a simple cube as fallback
+        const geometry = new THREE.BoxGeometry(2, height, 1);
+        const material = new THREE.MeshLambertMaterial({ 
+            color: 0x6a11cb,
+            transparent: true,
+            opacity: 0.8
         });
+        model = new THREE.Mesh(geometry, material);
+        model.position.copy(modelPosition);
+        scene.add(model);
     }
     
     function setupGeolocation() {
         if (!navigator.geolocation) {
-            showError('Geolocation is not supported by your browser.');
+            console.warn('Geolocation is not supported by your browser.');
+            distanceElement.textContent = 'Geolocation not supported';
             return;
         }
         
@@ -148,7 +190,7 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             function(error) {
                 console.error('Geolocation error:', error);
-                showError('Unable to access your location. Please enable location services.');
+                distanceElement.textContent = 'Location unavailable';
             },
             options
         );
@@ -186,7 +228,11 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Event listeners
     closeButton.addEventListener('click', function() {
-        window.close();
+        if (window.history.length > 1) {
+            window.history.back();
+        } else {
+            window.close();
+        }
     });
     
     retryButton.addEventListener('click', function() {
@@ -196,7 +242,11 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     exitButton.addEventListener('click', function() {
-        window.close();
+        if (window.history.length > 1) {
+            window.history.back();
+        } else {
+            window.close();
+        }
     });
     
     // Handle window resize
