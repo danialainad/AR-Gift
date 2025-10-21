@@ -12,21 +12,30 @@
         }
         
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: #000;
-            color: white;
             overflow: hidden;
             width: 100vw;
             height: 100vh;
         }
         
-        #ar-container {
+        #camera-video {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
+            object-fit: cover;
             z-index: 1;
+        }
+        
+        #model-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none;
         }
         
         #loading {
@@ -36,21 +45,22 @@
             width: 100%;
             height: 100%;
             background: #000;
+            color: white;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             z-index: 100;
+            font-family: Arial, sans-serif;
             text-align: center;
-            padding: 20px;
         }
         
         .spinner {
-            border: 5px solid rgba(255, 255, 255, 0.3);
+            border: 4px solid rgba(255, 255, 255, 0.3);
             border-radius: 50%;
-            border-top: 5px solid #6a11cb;
-            width: 50px;
-            height: 50px;
+            border-top: 4px solid white;
+            width: 40px;
+            height: 40px;
             animation: spin 1s linear infinite;
             margin-bottom: 20px;
         }
@@ -63,52 +73,223 @@
         .hidden {
             display: none;
         }
-        
-        #error-message {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.9);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 101;
-            text-align: center;
-            padding: 30px;
-        }
-        
-        #error-message button {
-            background: #6a11cb;
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 10px;
-            font-size: 1.2rem;
-            margin-top: 20px;
-            cursor: pointer;
-        }
     </style>
 </head>
 <body>
-    <div id="ar-container"></div>
+    <!-- Camera feed -->
+    <video id="camera-video" autoplay playsinline></video>
     
+    <!-- 3D Model overlay -->
+    <canvas id="model-canvas"></canvas>
+    
+    <!-- Loading screen -->
     <div id="loading">
         <div class="spinner"></div>
-        <h2>Loading AR Experience</h2>
-        <p id="loading-status">Starting camera...</p>
-    </div>
-    
-    <div id="error-message" class="hidden">
-        <h2 id="error-title">Camera Access Required</h2>
-        <p id="error-text">Please allow camera permissions to view the AR experience.</p>
-        <button id="retry-button">Try Again</button>
+        <div>Loading AR Experience...</div>
+        <div id="loading-status" style="margin-top: 10px; font-size: 14px; opacity: 0.8;">Starting camera</div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="ar-script.js"></script>
+    <script>
+        // Simple AR implementation
+        document.addEventListener('DOMContentLoaded', async function() {
+            const video = document.getElementById('camera-video');
+            const canvas = document.getElementById('model-canvas');
+            const loading = document.getElementById('loading');
+            const loadingStatus = document.getElementById('loading-status');
+            
+            let scene, camera, renderer, model;
+            let userHeading = 0;
+
+            try {
+                // Step 1: Start camera
+                loadingStatus.textContent = 'Starting camera...';
+                await startCamera();
+                
+                // Step 2: Setup Three.js
+                loadingStatus.textContent = 'Setting up 3D...';
+                setupThreeJS();
+                
+                // Step 3: Load model
+                loadingStatus.textContent = 'Loading model...';
+                await loadModel();
+                
+                // Step 4: Start compass/orientation
+                setupOrientation();
+                
+                // Step 5: Start animation
+                loadingStatus.textContent = 'Ready!';
+                setTimeout(() => {
+                    loading.classList.add('hidden');
+                }, 1000);
+                
+                animate();
+                
+            } catch (error) {
+                loadingStatus.textContent = 'Error: ' + error.message;
+                console.error('AR setup failed:', error);
+            }
+
+            async function startCamera() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            facingMode: 'environment',
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        }
+                    });
+                    
+                    video.srcObject = stream;
+                    video.play();
+                    
+                    return new Promise((resolve) => {
+                        video.addEventListener('loadeddata', resolve);
+                    });
+                    
+                } catch (error) {
+                    throw new Error('Camera access denied. Please allow camera permissions.');
+                }
+            }
+
+            function setupThreeJS() {
+                // Scene
+                scene = new THREE.Scene();
+                
+                // Camera - match viewport
+                camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+                camera.position.set(0, 1.5, 3);
+                
+                // Renderer
+                renderer = new THREE.WebGLRenderer({
+                    canvas: canvas,
+                    alpha: true,
+                    antialias: true
+                });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setClearColor(0x000000, 0);
+                
+                // Lights
+                const ambientLight = new THREE.AmbientLight(0xffffff, 1);
+                scene.add(ambientLight);
+                
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 10, 7);
+                scene.add(directionalLight);
+            }
+
+            function loadModel() {
+                return new Promise((resolve) => {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const modelUrl = urlParams.get('model');
+                    const height = parseFloat(urlParams.get('height')) || 2;
+                    const placementHeight = parseFloat(urlParams.get('placement')) || 0;
+
+                    const loader = new THREE.GLTFLoader();
+                    
+                    // Try loading with CORS proxy for GitHub
+                    const loadUrl = modelUrl.includes('github.com') 
+                        ? `https://corsproxy.io/?${encodeURIComponent(modelUrl)}`
+                        : modelUrl;
+
+                    loader.load(loadUrl, 
+                        (gltf) => {
+                            model = gltf.scene;
+                            
+                            // Scale model
+                            const box = new THREE.Box3().setFromObject(model);
+                            const size = box.getSize(new THREE.Vector3());
+                            const scale = height / size.y;
+                            model.scale.set(scale, scale, scale);
+                            
+                            // Position in front of camera
+                            model.position.set(0, placementHeight, -5);
+                            
+                            scene.add(model);
+                            resolve();
+                        },
+                        undefined,
+                        (error) => {
+                            console.error('Model load failed, using fallback:', error);
+                            // Create simple cube as fallback
+                            const geometry = new THREE.BoxGeometry(1, height, 1);
+                            const material = new THREE.MeshLambertMaterial({ 
+                                color: 0x4169E1,
+                                transparent: true,
+                                opacity: 0.9
+                            });
+                            model = new THREE.Mesh(geometry, material);
+                            model.position.set(0, placementHeight, -5);
+                            scene.add(model);
+                            resolve();
+                        }
+                    );
+                });
+            }
+
+            function setupOrientation() {
+                if (window.DeviceOrientationEvent) {
+                    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                        // iOS - request permission
+                        DeviceOrientationEvent.requestPermission()
+                            .then(permissionState => {
+                                if (permissionState === 'granted') {
+                                    window.addEventListener('deviceorientation', handleOrientation);
+                                }
+                            })
+                            .catch(console.error);
+                    } else {
+                        // Android and others
+                        window.addEventListener('deviceorientation', handleOrientation);
+                    }
+                }
+            }
+
+            function handleOrientation(event) {
+                // Use compass heading (alpha) to rotate the model
+                if (event.alpha !== null) {
+                    userHeading = event.alpha;
+                }
+            }
+
+            function animate() {
+                requestAnimationFrame(animate);
+                
+                // Rotate model based on device orientation
+                if (model) {
+                    // Simple rotation based on compass
+                    model.rotation.y = userHeading * Math.PI / 180;
+                    
+                    // Gentle floating animation
+                    model.position.y = (Math.sin(Date.now() * 0.001) * 0.1);
+                }
+                
+                renderer.render(scene, camera);
+            }
+
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            // Double-tap to exit
+            let lastTap = 0;
+            document.addEventListener('click', (e) => {
+                const currentTime = new Date().getTime();
+                if (currentTime - lastTap < 300) {
+                    // Double tap - go back
+                    if (window.history.length > 1) {
+                        window.history.back();
+                    } else {
+                        window.close();
+                    }
+                }
+                lastTap = currentTime;
+            });
+        });
+    </script>
 </body>
 </html>
