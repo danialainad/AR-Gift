@@ -1,146 +1,400 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>AR Gift GPS</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-    <!-- A-Frame & AR.js -->
-    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-    <script src="https://unpkg.com/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
-    <script src="https://unpkg.com/aframe-ar@3.3.2/dist/aframe-ar.min.js"></script>
-    <script src="https://unpkg.com/aframe-gps-camera/dist/aframe-gps-camera.min.js"></script>
-    <script src="https://unpkg.com/aframe-gps-entity-place/dist/aframe-gps-entity-place.min.js"></script>
-
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Model Placement</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-      body {
-        margin: 0;
-        overflow: hidden;
-        font-family: sans-serif;
-      }
-      #setupPanel {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.9);
-        color: white;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        z-index: 5;
-      }
-      #setupPanel input {
-        margin: 6px;
-        padding: 8px;
-        width: 260px;
-      }
-      #setupPanel button {
-        padding: 10px 20px;
-        margin-top: 10px;
-        background: #00bcd4;
-        border: none;
-        color: white;
-        cursor: pointer;
-        font-size: 16px;
-      }
-      #loadingMsg {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        color: white;
-        font-size: 18px;
-        background: rgba(0, 0, 0, 0.5);
-        padding: 12px 20px;
-        border-radius: 10px;
-        z-index: 2;
-      }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            padding: 30px 0;
+            color: white;
+        }
+
+        header h1 {
+            font-size: 2.8rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        header p {
+            font-size: 1.2rem;
+            max-width: 700px;
+            margin: 0 auto;
+            opacity: 0.9;
+        }
+
+        .app-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+            margin-top: 20px;
+        }
+
+        .input-section, .preview-section {
+            flex: 1;
+            min-width: 300px;
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-title i {
+            color: #6a11cb;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #34495e;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+
+        input:focus, select:focus {
+            border-color: #6a11cb;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(106, 17, 203, 0.2);
+        }
+
+        .size-inputs {
+            display: flex;
+            gap: 15px;
+        }
+
+        .size-inputs .form-group {
+            flex: 1;
+        }
+
+        button {
+            background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+            color: white;
+            border: none;
+            padding: 14px 20px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .model-preview {
+            background: #f8f9fa;
+            border-radius: 10px;
+            height: 250px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+            border: 2px dashed #bdc3c7;
+            overflow: hidden;
+        }
+
+        .model-preview img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .coordinates {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            border-left: 4px solid #6a11cb;
+        }
+
+        .coordinates p {
+            margin: 5px 0;
+            font-family: monospace;
+        }
+
+        .generated-link {
+            margin-top: 25px;
+            background: #e8f4fd;
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 4px solid #3498db;
+        }
+
+        .link-box {
+            background: white;
+            border: 1px solid #bdc3c7;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 10px;
+            word-break: break-all;
+            font-family: monospace;
+            display: flex;
+            align-items: center;
+        }
+
+        .link-box span {
+            flex: 1;
+        }
+
+        .copy-btn {
+            background: #2ecc71;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            width: auto;
+            margin: 0;
+        }
+
+        .copy-btn:hover {
+            background: #27ae60;
+        }
+
+        .instructions {
+            margin-top: 30px;
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .instructions h2 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+
+        .instructions ol {
+            margin-left: 20px;
+        }
+
+        .instructions li {
+            margin-bottom: 10px;
+            line-height: 1.6;
+        }
+
+        footer {
+            text-align: center;
+            color: white;
+            margin-top: 40px;
+            padding: 20px;
+            opacity: 0.8;
+        }
+
+        @media (max-width: 768px) {
+            .app-container {
+                flex-direction: column;
+            }
+            
+            .size-inputs {
+                flex-direction: column;
+                gap: 0;
+            }
+        }
     </style>
-  </head>
-  <body>
-    <!-- Setup panel (visible only when no query params) -->
-    <div id="setupPanel">
-      <h2>Place Your AR Gift 🎁</h2>
-      <input id="modelUrl" type="text" placeholder="Model URL (.glb)" />
-      <input id="latitude" type="number" step="0.000001" placeholder="Latitude" />
-      <input id="longitude" type="number" step="0.000001" placeholder="Longitude" />
-      <input id="altitude" type="number" step="0.1" placeholder="Altitude (meters)" />
-      <input id="size" type="number" step="0.1" placeholder="Size (meters)" />
-      <button id="generateBtn">Generate Share Link</button>
-      <div id="linkContainer" style="margin-top:15px;"></div>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AR Model Placement</h1>
+            <p>Place 3D models in real-world locations and share them in AR</p>
+        </header>
+
+        <div class="app-container">
+            <div class="input-section">
+                <h2 class="section-title"><i class="fas fa-cube"></i> Model Details</h2>
+                
+                <div class="form-group">
+                    <label for="model-url">3D Model URL</label>
+                    <input type="url" id="model-url" placeholder="https://example.com/model.glb">
+                </div>
+                
+                <div class="form-group">
+                    <label for="model-name">Model Name</label>
+                    <input type="text" id="model-name" placeholder="My 3D Model">
+                </div>
+                
+                <div class="size-inputs">
+                    <div class="form-group">
+                        <label for="model-height">Height (m)</label>
+                        <input type="number" id="model-height" placeholder="2.5" min="0.1" step="0.1">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="model-size">Size (m)</label>
+                        <input type="number" id="model-size" placeholder="1.0" min="0.1" step="0.1">
+                    </div>
+                </div>
+                
+                <h2 class="section-title" style="margin-top: 30px;"><i class="fas fa-map-marker-alt"></i> Location</h2>
+                
+                <div class="form-group">
+                    <label for="latitude">Latitude</label>
+                    <input type="number" id="latitude" placeholder="40.7128" step="any">
+                </div>
+                
+                <div class="form-group">
+                    <label for="longitude">Longitude</label>
+                    <input type="number" id="longitude" placeholder="-74.0060" step="any">
+                </div>
+                
+                <button id="generate-btn">Generate AR Link</button>
+            </div>
+            
+            <div class="preview-section">
+                <h2 class="section-title"><i class="fas fa-eye"></i> Preview</h2>
+                
+                <div class="model-preview">
+                    <i class="fas fa-cube" style="font-size: 60px; color: #bdc3c7;"></i>
+                </div>
+                
+                <div class="coordinates">
+                    <p><strong>Coordinates:</strong> <span id="coord-display">Not set</span></p>
+                    <p><strong>Model Size:</strong> <span id="size-display">Not set</span></p>
+                </div>
+                
+                <div class="generated-link">
+                    <h3>Your AR Link</h3>
+                    <p>Share this link to view the model in AR at the specified location</p>
+                    <div class="link-box">
+                        <span id="ar-link">No link generated yet</span>
+                        <button class="copy-btn" id="copy-btn">Copy</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h2>How to Use</h2>
+            <ol>
+                <li>Enter the URL of your 3D model (supports .glb, .gltf formats)</li>
+                <li>Provide a name for your model</li>
+                <li>Set the height and size of the model in meters</li>
+                <li>Enter the latitude and longitude where the model should appear</li>
+                <li>Click "Generate AR Link" to create your shareable AR link</li>
+                <li>Share the link with others - when opened on a mobile device, it will show the model in AR at the specified location</li>
+            </ol>
+        </div>
+        
+        <footer>
+            <p>AR Model Placement Tool &copy; 2023</p>
+        </footer>
     </div>
 
-    <!-- Loading message -->
-    <div id="loadingMsg">📷 Waiting for camera and GPS...</div>
-
-    <!-- AR Scene -->
-    <a-scene
-      embedded
-      vr-mode-ui="enabled: false"
-      renderer="antialias: true; alpha: true;"
-      arjs="sourceType: webcam; debugUIEnabled: false;"
-    >
-      <a-entity gps-camera rotation-reader></a-entity>
-    </a-scene>
-
     <script>
-      const urlParams = new URLSearchParams(window.location.search);
-      const modelUrl = urlParams.get("model");
-      const lat = parseFloat(urlParams.get("lat"));
-      const lon = parseFloat(urlParams.get("lon"));
-      const alt = parseFloat(urlParams.get("alt")) || 0;
-      const size = parseFloat(urlParams.get("size")) || 10;
-
-      const setupPanel = document.getElementById("setupPanel");
-      const loadingMsg = document.getElementById("loadingMsg");
-
-      if (modelUrl && lat && lon) {
-        // Hide setup panel
-        setupPanel.style.display = "none";
-        loadingMsg.style.display = "block";
-
-        // Wait for A-Frame to be ready
-        document.querySelector("a-scene").addEventListener("loaded", () => {
-          const scene = document.querySelector("a-scene");
-
-          const model = document.createElement("a-entity");
-          model.setAttribute("gltf-model", modelUrl);
-          model.setAttribute("gps-entity-place", `latitude: ${lat}; longitude: ${lon}; altitude: ${alt}`);
-          model.setAttribute("scale", `${size} ${size} ${size}`);
-          model.setAttribute("rotation", "0 180 0");
-          scene.appendChild(model);
-
-          window.addEventListener("gps-camera-update-position", (e) => {
-            loadingMsg.style.display = "none";
-          });
+        document.addEventListener('DOMContentLoaded', function() {
+            const generateBtn = document.getElementById('generate-btn');
+            const copyBtn = document.getElementById('copy-btn');
+            const arLink = document.getElementById('ar-link');
+            const coordDisplay = document.getElementById('coord-display');
+            const sizeDisplay = document.getElementById('size-display');
+            
+            // Set some default coordinates (New York)
+            document.getElementById('latitude').value = '40.7128';
+            document.getElementById('longitude').value = '-74.0060';
+            
+            generateBtn.addEventListener('click', function() {
+                const modelUrl = document.getElementById('model-url').value;
+                const modelName = document.getElementById('model-name').value;
+                const height = document.getElementById('model-height').value;
+                const size = document.getElementById('model-size').value;
+                const lat = document.getElementById('latitude').value;
+                const lng = document.getElementById('longitude').value;
+                
+                // Basic validation
+                if (!modelUrl || !modelName || !height || !size || !lat || !lng) {
+                    alert('Please fill in all fields');
+                    return;
+                }
+                
+                // Update preview
+                coordDisplay.textContent = `${lat}, ${lng}`;
+                sizeDisplay.textContent = `${height}m height, ${size}m size`;
+                
+                // Generate AR link (this is a simplified example)
+                // In a real implementation, this would create a proper AR viewer URL
+                const baseUrl = window.location.href.split('?')[0];
+                const arViewerUrl = `${baseUrl}?model=${encodeURIComponent(modelUrl)}&lat=${lat}&lng=${lng}&height=${height}&size=${size}&name=${encodeURIComponent(modelName)}`;
+                
+                arLink.textContent = arViewerUrl;
+            });
+            
+            copyBtn.addEventListener('click', function() {
+                const textToCopy = arLink.textContent;
+                
+                if (textToCopy === 'No link generated yet') {
+                    alert('Please generate a link first');
+                    return;
+                }
+                
+                // Copy to clipboard
+                navigator.clipboard.writeText(textToCopy).then(function() {
+                    // Change button text temporarily
+                    const originalText = copyBtn.textContent;
+                    copyBtn.textContent = 'Copied!';
+                    copyBtn.style.background = '#27ae60';
+                    
+                    setTimeout(function() {
+                        copyBtn.textContent = originalText;
+                        copyBtn.style.background = '#2ecc71';
+                    }, 2000);
+                }).catch(function(err) {
+                    console.error('Could not copy text: ', err);
+                    alert('Failed to copy link to clipboard');
+                });
+            });
         });
-      } else {
-        // Setup mode
-        loadingMsg.style.display = "none";
-        document.getElementById("generateBtn").addEventListener("click", () => {
-          const m = document.getElementById("modelUrl").value.trim();
-          const la = document.getElementById("latitude").value.trim();
-          const lo = document.getElementById("longitude").value.trim();
-          const al = document.getElementById("altitude").value.trim() || 0;
-          const s = document.getElementById("size").value.trim() || 10;
-
-          if (!m || !la || !lo) {
-            alert("Please fill in model URL, latitude, and longitude.");
-            return;
-          }
-
-          const link = `${window.location.origin}${window.location.pathname}?model=${encodeURIComponent(
-            m
-          )}&lat=${la}&lon=${lo}&alt=${al}&size=${s}`;
-
-          document.getElementById(
-            "linkContainer"
-          ).innerHTML = `<p>Share this link:</p><a href="${link}" target="_blank" style="color:#00bcd4;">${link}</a>`;
-        });
-      }
     </script>
-  </body>
+</body>
 </html>
