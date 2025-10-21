@@ -1,192 +1,137 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>AR Gift (GPS) — Place & Share</title>
-  <style>
-    body, html { margin:0; padding:0; height:100%; font-family: system-ui, -apple-system, Roboto, Arial; }
-    #ui { position: absolute; z-index: 999; left: 12px; top: 12px; background: rgba(255,255,255,0.95); padding:10px; border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,0.12); }
-    button { padding:8px 12px; border-radius:6px; border:1px solid #ddd; background:#fff; cursor:pointer; }
-    input { padding:6px; margin:4px 0; width:220px; }
-    small { color:#555 }
-  </style>
-  <!-- A-Frame & AR.js (A-Frame + AR.js GPS mode) -->
-  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
-</head>
-<body>
-  <div id="ui">
-    <div>
-      <b>AR Gift — Place & Share (GPS)</b><br>
-      <small>Open on your phone (HTTPS required). Allow location & camera.</small>
+  <head>
+    <meta charset="UTF-8" />
+    <title>AR Gift GPS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://cdn.rawgit.com/jeromeetienne/AR.js/2.2.1/aframe/build/aframe-ar-nft.js"></script>
+    <style>
+      body, html {
+        margin: 0;
+        overflow: hidden;
+        font-family: system-ui, sans-serif;
+        background: #000;
+        color: white;
+      }
+      #panel {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        padding: 20px;
+        border-radius: 12px;
+        z-index: 10;
+        width: 90%;
+        max-width: 400px;
+        display: none;
+      }
+      #panel input {
+        width: 100%;
+        margin: 4px 0;
+        padding: 6px;
+        border-radius: 6px;
+        border: none;
+        outline: none;
+      }
+      #panel button {
+        width: 100%;
+        padding: 8px;
+        margin-top: 8px;
+        border: none;
+        background: #0cf;
+        color: #000;
+        border-radius: 6px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      #shareLink {
+        word-break: break-all;
+        font-size: 12px;
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Control Panel -->
+    <div id="panel">
+      <h3>📍 AR Object Setup</h3>
+      <label>Model (.glb) URL:</label>
+      <input id="modelUrl" type="text" placeholder="https://example.com/model.glb" />
+
+      <label>Latitude:</label>
+      <input id="lat" type="number" step="any" placeholder="35.6892" />
+
+      <label>Longitude:</label>
+      <input id="lon" type="number" step="any" placeholder="51.3890" />
+
+      <label>Height (meters):</label>
+      <input id="alt" type="number" step="any" placeholder="10" />
+
+      <label>Size (meters):</label>
+      <input id="size" type="number" step="any" placeholder="20" />
+
+      <button id="generateBtn">Generate Share Link</button>
+
+      <div id="shareLink"></div>
     </div>
-    <div style="margin-top:8px">
-      <button id="btnPlace">Place gift here</button>
-      <button id="btnUseParams">Load from URL</button>
-    </div>
-    <div style="margin-top:8px">
-      <label>Model URL (optional, .gltf/.glb):</label><br>
-      <input id="modelUrl" placeholder="leave empty to use default" />
-    </div>
-    <div style="margin-top:6px">
-      <label>Scale (1 = normal):</label><br>
-      <input id="scale" value="1" />
-    </div>
-    <div style="margin-top:6px">
-      <label>Share link:</label><br>
-      <input id="shareLink" readonly style="width:320px" />
-    </div>
-    <div style="margin-top:6px">
-      <small>Tip: Place the gift while standing at or near the window that faces the park.</small>
-    </div>
-  </div>
 
-  <!-- A-Frame scene with AR.js (GPS) -->
-  <a-scene vr-mode-ui="enabled: false" embedded arjs="sourceType: webcam; debugUIEnabled: false;" renderer="logarithmicDepthBuffer: true;">
+    <!-- AR Scene -->
+    <a-scene
+      vr-mode-ui="enabled: false;"
+      embedded
+      arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
+    >
+      <a-entity id="arModel"></a-entity>
+      <a-camera gps-camera rotation-reader></a-camera>
+    </a-scene>
 
-    <!-- Camera -->
-    <a-camera gps-camera rotation-reader></a-camera>
+    <script>
+      const urlParams = new URLSearchParams(window.location.search);
+      const lat = parseFloat(urlParams.get("lat"));
+      const lon = parseFloat(urlParams.get("lon"));
+      const alt = parseFloat(urlParams.get("alt"));
+      const modelUrl = urlParams.get("model");
+      const size = parseFloat(urlParams.get("size"));
 
-    <!-- Placeholder entity: will be added dynamically or from URL params -->
+      const panel = document.getElementById("panel");
+      const modelEntity = document.getElementById("arModel");
 
-  </a-scene>
-
-  <script>
-    // Helper: read URL params
-    function getParam(name){
-      const url = new URL(window.location);
-      return url.searchParams.get(name);
-    }
-
-    // Convert to float safely
-    function toF(v){ return v===null?null:parseFloat(v); }
-
-    const scene = document.querySelector('a-scene');
-    const btnPlace = document.getElementById('btnPlace');
-    const btnUseParams = document.getElementById('btnUseParams');
-    const shareLinkInput = document.getElementById('shareLink');
-    const modelUrlInput = document.getElementById('modelUrl');
-    const scaleInput = document.getElementById('scale');
-
-    // Create a visual 3D gift (default if no model provided)
-    function createDefaultGift(){
-      const e = document.createElement('a-entity');
-      // a simple floating heart-like object built from primitives
-      const container = document.createElement('a-entity');
-      container.setAttribute('animation', 'property: rotation; to: 0 360 0; loop: true; dur: 8000; easing: linear');
-
-      const box = document.createElement('a-box');
-      box.setAttribute('depth', '0.6');
-      box.setAttribute('height', '0.6');
-      box.setAttribute('width', '0.6');
-      box.setAttribute('position', '0 0 0');
-      box.setAttribute('material', 'color: #ff4d6d; metalness:0.2; roughness:0.4;');
-      container.appendChild(box);
-
-      const text = document.createElement('a-text');
-      text.setAttribute('value', 'For you ❤️');
-      text.setAttribute('align', 'center');
-      text.setAttribute('position', '0 -0.7 0');
-      text.setAttribute('scale', '2 2 2');
-      container.appendChild(text);
-
-      e.appendChild(container);
-      return e;
-    }
-
-    // Add GPS-anchored entity at lat/lon
-    function addGpsEntity(lat, lon, modelUrl, scale){
-      // remove existing gps-entity-place if any
-      const prev = document.querySelector('[gps-entity-place]');
-      if(prev) prev.parentNode.removeChild(prev);
-
-      const entity = document.createElement('a-entity');
-      entity.setAttribute('gps-entity-place', `latitude: ${lat}; longitude: ${lon};`);
-      entity.setAttribute('rotation', '0 180 0');
-      entity.setAttribute('scale', `${scale} ${scale} ${scale}`);
-
-      if(modelUrl){
-        const gltf = document.createElement('a-entity');
-        gltf.setAttribute('gltf-model', modelUrl);
-        gltf.setAttribute('position', '0 0 0');
-        gltf.setAttribute('animation', 'property: rotation; to: 0 360 0; loop: true; dur: 9000; easing: linear');
-        entity.appendChild(gltf);
+      if (modelUrl && lat && lon) {
+        // VIEW MODE (camera only)
+        modelEntity.setAttribute("gltf-model", modelUrl);
+        modelEntity.setAttribute("gps-entity-place", `latitude: ${lat}; longitude: ${lon};`);
+        modelEntity.setAttribute("position", `0 ${alt || 0} 0`);
+        const s = size ? size / 10 : 1;
+        modelEntity.setAttribute("scale", `${s} ${s} ${s}`);
+        panel.style.display = "none";
       } else {
-        const def = createDefaultGift();
-        def.setAttribute('position', '0 0 0');
-        entity.appendChild(def);
+        // SETUP MODE
+        panel.style.display = "block";
+        document.getElementById("generateBtn").onclick = () => {
+          const m = document.getElementById("modelUrl").value.trim();
+          const la = document.getElementById("lat").value.trim();
+          const lo = document.getElementById("lon").value.trim();
+          const al = document.getElementById("alt").value.trim() || 0;
+          const si = document.getElementById("size").value.trim() || 1;
+
+          if (!m || !la || !lo) {
+            alert("Please fill all required fields.");
+            return;
+          }
+
+          const link = `${location.origin}${location.pathname}?model=${encodeURIComponent(
+            m
+          )}&lat=${la}&lon=${lo}&alt=${al}&size=${si}`;
+          document.getElementById("shareLink").innerHTML =
+            "✅ Share this link:<br><a href='" +
+            link +
+            "' target='_blank' style='color:#0cf'>" +
+            link +
+            "</a>";
+        };
       }
-
-      // small scale adjustment so it appears above ground if needed
-      entity.addEventListener('loaded', () => console.log('gps entity loaded'));
-      scene.appendChild(entity);
-
-      return entity;
-    }
-
-    // Place button: get current GPS & create entity, then create share link
-    btnPlace.addEventListener('click', () => {
-      if(!navigator.geolocation){ alert('Geolocation not supported'); return; }
-      btnPlace.disabled = true; btnPlace.textContent = 'Getting location...';
-      navigator.geolocation.getCurrentPosition(pos => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-        const modelUrl = modelUrlInput.value.trim() || '';
-        const scale = parseFloat(scaleInput.value) || 1;
-        addGpsEntity(lat, lon, modelUrl, scale);
-        const shareUrl = new URL(window.location.href);
-        shareUrl.searchParams.set('lat', lat);
-        shareUrl.searchParams.set('lon', lon);
-        if(modelUrl) shareUrl.searchParams.set('model', modelUrl);
-        if(scale) shareUrl.searchParams.set('scale', scale);
-        shareLinkInput.value = shareUrl.toString();
-        btnPlace.disabled = false; btnPlace.textContent = 'Place gift here';
-        alert('Placed! Share the link in the Share link box with your friend. They should open it on their phone (HTTPS).');
-      }, err => { btnPlace.disabled=false; btnPlace.textContent='Place gift here'; alert('Error getting location: '+err.message); }, { enableHighAccuracy: true, maximumAge: 0 });
-    });
-
-    // Load from URL params (useful for the friend opening the link)
-    btnUseParams.addEventListener('click', () => {
-      const lat = toF(getParam('lat'));
-      const lon = toF(getParam('lon'));
-      const model = getParam('model');
-      const scale = toF(getParam('scale')) || parseFloat(scaleInput.value) || 1;
-      if(lat && lon){
-        addGpsEntity(lat, lon, model, scale);
-        shareLinkInput.value = window.location.href;
-        alert('Loaded object from URL parameters. Point camera toward the outdoor spot (park).');
-      } else {
-        alert('No lat/lon in URL. You can place one with "Place gift here" and share the generated link.');
-      }
-    });
-
-    // Auto-run when page has lat/lon params (for friend who opens link)
-    window.addEventListener('load', () => {
-      const lat = toF(getParam('lat'));
-      const lon = toF(getParam('lon'));
-      const model = getParam('model');
-      const scale = toF(getParam('scale')) || 1;
-      if(lat && lon){
-        // set inputs to reflect params
-        modelUrlInput.value = model || '';
-        scaleInput.value = scale;
-        // wait a bit for camera permission prompt
-        setTimeout(()=>{
-          addGpsEntity(lat, lon, model, scale);
-          shareLinkInput.value = window.location.href;
-        }, 600);
-      }
-    });
-
-    // small helper: rotation-reader so camera rotation updates
-    AFRAME.registerComponent('rotation-reader', {
-      tick: function(){
-        const rot = this.el.getAttribute('rotation');
-        // no-op but forces A-Frame to keep camera updated
-      }
-    });
-
-  </script>
-</body>
+    </script>
+  </body>
 </html>
