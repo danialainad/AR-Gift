@@ -80,19 +80,6 @@
         .hidden {
             display: none;
         }
-        
-        #debug {
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 12px;
-            z-index: 3;
-            display: none;
-        }
     </style>
 </head>
 <body>
@@ -107,9 +94,8 @@
         <div id="loading-status" style="margin-top: 10px; font-size: 14px; opacity: 0.8;">Starting</div>
     </div>
 
-    <div id="debug"></div>
-
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/loaders/GLTFLoader.js"></script>
     
     <script>
         let scene, camera, renderer, model;
@@ -120,7 +106,6 @@
         const canvas = document.getElementById('model-canvas');
         const loading = document.getElementById('loading');
         const loadingStatus = document.getElementById('loading-status');
-        const debug = document.getElementById('debug');
 
         async function init() {
             try {
@@ -130,8 +115,8 @@
                 updateStatus('Camera ready! Setting up 3D...');
                 setupThreeJS();
                 
-                updateStatus('Creating 3D model...');
-                createModel();
+                updateStatus('Loading Batman model...');
+                await loadBatmanModel();
                 
                 updateStatus('Setting up device orientation...');
                 setupOrientation();
@@ -143,8 +128,7 @@
                 setTimeout(() => {
                     loading.classList.add('hidden');
                     isLoaded = true;
-                    updateDebug('AR Experience Running');
-                }, 1000);
+                }, 500);
                 
             } catch (error) {
                 updateStatus('Error: ' + error.message);
@@ -155,11 +139,6 @@
         function updateStatus(message) {
             loadingStatus.textContent = message;
             console.log('Status:', message);
-        }
-
-        function updateDebug(message) {
-            debug.textContent = message;
-            debug.style.display = 'block';
         }
 
         async function startCamera() {
@@ -178,29 +157,13 @@
                 
                 video.srcObject = stream;
                 
-                // Wait for video to be ready
-                return new Promise((resolve, reject) => {
-                    const onLoaded = () => {
-                        video.removeEventListener('loadeddata', onLoaded);
-                        video.removeEventListener('error', onError);
+                return new Promise((resolve) => {
+                    if (video.readyState >= 2) {
                         resolve();
-                    };
-                    
-                    const onError = (err) => {
-                        video.removeEventListener('loadeddata', onLoaded);
-                        video.removeEventListener('error', onError);
-                        reject(new Error('Camera failed to start'));
-                    };
-                    
-                    video.addEventListener('loadeddata', onLoaded);
-                    video.addEventListener('error', onError);
-                    
-                    // Fallback: if loadeddata doesn't fire, resolve after 2 seconds
-                    setTimeout(() => {
-                        if (video.readyState >= 2) { // HAVE_CURRENT_DATA or better
-                            resolve();
-                        }
-                    }, 2000);
+                    } else {
+                        video.addEventListener('loadeddata', resolve);
+                        setTimeout(resolve, 1000);
+                    }
                 });
                 
             } catch (error) {
@@ -212,94 +175,132 @@
             // Scene
             scene = new THREE.Scene();
             
-            // Camera - match perspective to human eye
-            camera = new THREE.PerspectiveCamera(
-                75, // Field of view
-                window.innerWidth / window.innerHeight, // Aspect ratio
-                0.1, // Near clipping plane
-                1000 // Far clipping plane
-            );
-            camera.position.set(0, 1.6, 0); // Eye level height
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 1.6, 0);
             
             // Renderer
             renderer = new THREE.WebGLRenderer({
                 canvas: canvas,
-                alpha: true, // Transparent background
-                antialias: true // Smooth edges
+                alpha: true,
+                antialias: true
             });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setClearColor(0x000000, 0); // Transparent
+            renderer.setClearColor(0x000000, 0);
             
-            // Add lights so we can see the model
+            // Lights
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
             scene.add(ambientLight);
             
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
             directionalLight.position.set(10, 10, 5);
             scene.add(directionalLight);
-            
-            // Add a point light for better 3D effect
-            const pointLight = new THREE.PointLight(0xffffff, 0.5);
-            pointLight.position.set(0, 5, 5);
-            scene.add(pointLight);
         }
 
-        function createModel() {
-            // Get parameters from URL
-            const urlParams = new URLSearchParams(window.location.search);
-            const height = parseFloat(urlParams.get('height')) || 3;
-            const placementHeight = parseFloat(urlParams.get('placement')) || 0;
+        function loadBatmanModel() {
+            return new Promise((resolve) => {
+                // Get parameters from URL or use defaults
+                const urlParams = new URLSearchParams(window.location.search);
+                let modelUrl = urlParams.get('model');
+                const height = parseFloat(urlParams.get('height')) || 3;
+                const placementHeight = parseFloat(urlParams.get('placement')) || 0;
 
-            // Create an interesting 3D model
+                // If no model URL provided in parameters, use the local batman.glb
+                if (!modelUrl) {
+                    // Use relative path to batman.glb in the same directory
+                    modelUrl = 'batman.glb';
+                }
+
+                updateStatus('Loading: ' + modelUrl);
+
+                // Use GLTFLoader to load the model
+                const loader = new THREE.GLTFLoader();
+                
+                loader.load(
+                    modelUrl,
+                    (gltf) => {
+                        model = gltf.scene;
+                        updateStatus('Batman model loaded!');
+                        
+                        // Scale the model
+                        const box = new THREE.Box3().setFromObject(model);
+                        const size = box.getSize(new THREE.Vector3());
+                        const scale = height / size.y;
+                        
+                        model.scale.set(scale, scale, scale);
+                        model.position.set(0, placementHeight, -8);
+                        
+                        // Enable shadows
+                        model.traverse((child) => {
+                            if (child.isMesh) {
+                                child.castShadow = true;
+                                child.receiveShadow = true;
+                            }
+                        });
+                        
+                        scene.add(model);
+                        resolve();
+                    },
+                    (progress) => {
+                        if (progress.lengthComputable) {
+                            const percent = Math.round((progress.loaded / progress.total) * 100);
+                            updateStatus(`Loading Batman... ${percent}%`);
+                        } else {
+                            updateStatus('Downloading Batman model...');
+                        }
+                    },
+                    (error) => {
+                        console.error('Failed to load Batman model:', error);
+                        updateStatus('Batman model not found. Using placeholder.');
+                        createPlaceholderModel(height, placementHeight);
+                        resolve();
+                    }
+                );
+            });
+        }
+
+        function createPlaceholderModel(height, placementHeight) {
+            // Create a Batman symbol as placeholder
             const group = new THREE.Group();
             
-            // Main body - a futuristic tower
-            const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.5, height, 8);
+            // Batman symbol body
+            const bodyGeometry = new THREE.SphereGeometry(0.5, 8, 6);
             const bodyMaterial = new THREE.MeshLambertMaterial({ 
-                color: 0x4169E1,
-                transparent: true,
-                opacity: 0.9
+                color: 0x000000,
+                emissive: 0x222222
             });
             const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
             group.add(body);
             
-            // Top section
-            const topGeometry = new THREE.SphereGeometry(0.4, 8, 6);
-            const topMaterial = new THREE.MeshLambertMaterial({ 
-                color: 0x6495ED,
-                emissive: 0x2244aa
+            // Batman wings
+            const wingGeometry = new THREE.ConeGeometry(0.3, 1, 4);
+            const wingMaterial = new THREE.MeshLambertMaterial({ 
+                color: 0x000000,
+                emissive: 0x111111
             });
-            const top = new THREE.Mesh(topGeometry, topMaterial);
-            top.position.y = height / 2 + 0.3;
-            group.add(top);
             
-            // Base platform
-            const baseGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.2, 16);
-            const baseMaterial = new THREE.MeshLambertMaterial({ 
-                color: 0x2E8B57 
-            });
+            // Left wing
+            const leftWing = new THREE.Mesh(wingGeometry, wingMaterial);
+            leftWing.position.set(-0.7, 0, 0);
+            leftWing.rotation.z = Math.PI / 4;
+            group.add(leftWing);
+            
+            // Right wing
+            const rightWing = new THREE.Mesh(wingGeometry, wingMaterial);
+            rightWing.position.set(0.7, 0, 0);
+            rightWing.rotation.z = -Math.PI / 4;
+            group.add(rightWing);
+            
+            // Base
+            const baseGeometry = new THREE.CylinderGeometry(1, 1, 0.1, 8);
+            const baseMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
             const base = new THREE.Mesh(baseGeometry, baseMaterial);
-            base.position.y = -height / 2;
+            base.position.y = -height/2;
             group.add(base);
-            
-            // Glowing rings
-            for (let i = 0; i < 3; i++) {
-                const ringGeometry = new THREE.TorusGeometry(0.5, 0.05, 8, 16);
-                const ringMaterial = new THREE.MeshLambertMaterial({ 
-                    color: 0x00ff00,
-                    emissive: 0x00aa00
-                });
-                const ring = new THREE.Mesh(ringGeometry, ringMaterial);
-                ring.position.y = -height/2 + (i + 1) * (height / 4);
-                ring.rotation.x = Math.PI / 2;
-                group.add(ring);
-            }
 
             model = group;
-            model.position.set(0, placementHeight, -8); // Position in front of camera
+            model.position.set(0, placementHeight, -8);
             scene.add(model);
-            
-            updateDebug('3D Model Created - Height: ' + height + 'm');
         }
 
         function setupOrientation() {
@@ -307,57 +308,39 @@
                 const handleOrientation = (event) => {
                     if (event.alpha !== null) {
                         userHeading = event.alpha;
-                        updateDebug('Compass: ' + userHeading.toFixed(1) + '°');
                     }
                 };
 
-                // iOS 13+ requires permission
                 if (typeof DeviceOrientationEvent.requestPermission === 'function') {
                     DeviceOrientationEvent.requestPermission()
                         .then(permissionState => {
                             if (permissionState === 'granted') {
                                 window.addEventListener('deviceorientation', handleOrientation);
-                                updateDebug('Orientation: Enabled');
                             }
                         })
-                        .catch(() => {
-                            updateDebug('Orientation: Permission denied');
-                        });
+                        .catch(console.error);
                 } else {
-                    // Android and other browsers
                     window.addEventListener('deviceorientation', handleOrientation);
-                    updateDebug('Orientation: Enabled');
                 }
-            } else {
-                updateDebug('Orientation: Not supported');
             }
         }
 
         function startAnimation() {
-            let lastTime = 0;
-            
-            function animate(currentTime) {
+            function animate() {
                 requestAnimationFrame(animate);
-                
-                const deltaTime = (currentTime - lastTime) / 1000;
-                lastTime = currentTime;
                 
                 if (model && isLoaded) {
                     // Rotate model based on compass
                     model.rotation.y = userHeading * (Math.PI / 180);
                     
                     // Gentle floating animation
-                    model.position.y += Math.sin(currentTime * 0.001) * 0.001;
-                    
-                    // Pulsing glow effect
-                    const scale = 1 + Math.sin(currentTime * 0.002) * 0.05;
-                    model.scale.set(scale, scale, scale);
+                    model.position.y += Math.sin(Date.now() * 0.002) * 0.002;
                 }
                 
                 renderer.render(scene, camera);
             }
             
-            animate(0);
+            animate();
         }
 
         // Handle window resize
@@ -369,12 +352,11 @@
             }
         });
 
-        // Double tap to exit (hidden feature)
+        // Double tap to exit
         let lastTap = 0;
-        document.addEventListener('click', (event) => {
+        document.addEventListener('click', () => {
             const currentTime = new Date().getTime();
             if (currentTime - lastTap < 300) {
-                // Double tap detected - exit
                 if (window.history.length > 1) {
                     window.history.back();
                 } else {
@@ -384,19 +366,7 @@
             lastTap = currentTime;
         });
 
-        // Show debug info on long press
-        let longPressTimer;
-        document.addEventListener('touchstart', (e) => {
-            longPressTimer = setTimeout(() => {
-                debug.style.display = debug.style.display === 'none' ? 'block' : 'none';
-            }, 1000);
-        });
-        
-        document.addEventListener('touchend', () => {
-            clearTimeout(longPressTimer);
-        });
-
-        // Start the AR experience when page loads
+        // Start the AR experience
         document.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
