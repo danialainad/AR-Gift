@@ -23,9 +23,9 @@
         <div id="loading-status">Starting Camera...</div>
     </div>
 
-    <!-- Use CDN that includes GLTFLoader in main Three.js -->
+    <!-- Use CDN that includes GLTFLoader in the main Three.js build -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/jsm/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/GLTFLoader.js"></script>
 
     <script>
         let scene, camera, renderer, model;
@@ -55,83 +55,166 @@
                 
             } catch (error) {
                 loadingStatus.textContent = 'Error: ' + error.message;
+                console.error('Error:', error);
             }
         }
 
         async function startCamera() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error('Camera not supported');
+            }
+
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: 'environment' }
             });
+            
             video.srcObject = stream;
-            return new Promise(resolve => video.onloadeddata = resolve);
+            
+            return new Promise((resolve) => {
+                if (video.readyState >= 2) {
+                    resolve();
+                } else {
+                    video.addEventListener('loadeddata', resolve);
+                }
+            });
         }
 
         function setupThreeJS() {
+            // Scene
             scene = new THREE.Scene();
+            
+            // Camera
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(0, 1.6, 0);
-            renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
             
+            // Renderer
+            renderer = new THREE.WebGLRenderer({
+                canvas: canvas,
+                alpha: true,
+                antialias: true
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000, 0);
+            
+            // Lights
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+            
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
             directionalLight.position.set(5, 10, 5);
-            scene.add(ambientLight, directionalLight);
+            scene.add(directionalLight);
         }
 
         function loadModel() {
             return new Promise((resolve) => {
-                // Get your Batman model URL from parameters or use direct path
+                // Get parameters from URL
                 const urlParams = new URLSearchParams(window.location.search);
                 let modelUrl = urlParams.get('model') || 'batman.glb';
-                
-                // Use the GLTFLoader that's now properly loaded
+                const height = parseFloat(urlParams.get('height')) || 3;
+
+                console.log('Loading model from:', modelUrl);
+
+                // Use GLTFLoader - it should be available globally now
                 const loader = new THREE.GLTFLoader();
                 
-                loader.load(modelUrl, (gltf) => {
-                    model = gltf.scene;
-                    
-                    // Scale and position
-                    model.scale.set(3, 3, 3);
-                    model.position.set(0, 0, -5);
-                    
-                    scene.add(model);
-                    resolve();
-                    
-                }, undefined, (error) => {
-                    console.error('Model load failed:', error);
-                    // Create simple cube as fallback
-                    const geometry = new THREE.BoxGeometry(2, 3, 1);
-                    const material = new THREE.MeshLambertMaterial({ color: 0x0000ff });
-                    model = new THREE.Mesh(geometry, material);
-                    model.position.set(0, 0, -5);
-                    scene.add(model);
-                    resolve();
-                });
+                loader.load(
+                    modelUrl,
+                    (gltf) => {
+                        console.log('Model loaded successfully');
+                        model = gltf.scene;
+                        
+                        // Scale the model
+                        model.scale.set(height, height, height);
+                        model.position.set(0, 0, -5);
+                        
+                        scene.add(model);
+                        resolve();
+                    },
+                    (progress) => {
+                        if (progress.lengthComputable) {
+                            const percent = Math.round((progress.loaded / progress.total) * 100);
+                            loadingStatus.textContent = `Loading Batman... ${percent}%`;
+                        }
+                    },
+                    (error) => {
+                        console.error('Failed to load Batman model:', error);
+                        // Create a simple cube as fallback
+                        createFallbackModel();
+                        resolve();
+                    }
+                );
             });
+        }
+
+        function createFallbackModel() {
+            // Create a simple Batman symbol
+            const group = new THREE.Group();
+            
+            // Body
+            const bodyGeometry = new THREE.BoxGeometry(1, 2, 0.5);
+            const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            group.add(body);
+            
+            // Wings
+            const wingGeometry = new THREE.PlaneGeometry(1, 1);
+            const wingMaterial = new THREE.MeshLambertMaterial({ color: 0x000000, side: THREE.DoubleSide });
+            const leftWing = new THREE.Mesh(wingGeometry, wingMaterial);
+            const rightWing = new THREE.Mesh(wingGeometry, wingMaterial);
+            
+            leftWing.position.set(-0.8, 0, 0);
+            leftWing.rotation.z = Math.PI / 4;
+            rightWing.position.set(0.8, 0, 0);
+            rightWing.rotation.z = -Math.PI / 4;
+            
+            group.add(leftWing);
+            group.add(rightWing);
+
+            model = group;
+            model.position.set(0, 0, -5);
+            scene.add(model);
         }
 
         function startAnimation() {
             function animate() {
                 requestAnimationFrame(animate);
+                
                 if (model) {
+                    // Rotate the model slowly
                     model.rotation.y += 0.01;
                 }
+                
                 renderer.render(scene, camera);
             }
+            
             animate();
         }
 
-        // Start when page loads
-        document.addEventListener('DOMContentLoaded', init);
-        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            if (camera && renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+
         // Double tap to exit
         let lastTap = 0;
         document.addEventListener('click', () => {
-            const now = Date.now();
-            if (now - lastTap < 300) window.history.back();
-            lastTap = now;
+            const currentTime = new Date().getTime();
+            if (currentTime - lastTap < 300) {
+                if (window.history.length > 1) {
+                    window.history.back();
+                } else {
+                    window.close();
+                }
+            }
+            lastTap = currentTime;
         });
+
+        // Start the AR experience
+        document.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
 </html>
