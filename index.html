@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Model Placement</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AR Model Placement</h1>
+            <p>Place 3D models in real-world locations and share them in AR</p>
+        </header>
+
+        <div class="app-container">
+            <div class="input-section">
+                <h2 class="section-title"><i class="fas fa-cube"></i> Model Details</h2>
+                
+                <div class="form-group">
+                    <label for="model-url">3D Model URL</label>
+                    <input type="url" id="model-url" placeholder="https://raw.githubusercontent.com/yourusername/yourrepo/main/batman.glb" value="https://raw.githubusercontent.com/yourusername/yourrepo/main/batman.glb">
+                </div>
+                
+                <div class="form-group">
+                    <label for="model-name">Model Name</label>
+                    <input type="text" id="model-name" placeholder="Batman Statue" value="Batman Statue">
+                </div>
+                
+                <div class="size-inputs">
+                    <div class="form-group">
+                        <label for="model-height">Model Height (m)</label>
+                        <input type="number" id="model-height" placeholder="20" min="0.1" step="0.1" value="20">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="placement-height">Placement Height (m)</label>
+                        <input type="number" id="placement-height" placeholder="0" min="0" step="0.1" value="0">
+                    </div>
+                </div>
+                
+                <h2 class="section-title" style="margin-top: 30px;"><i class="fas fa-map-marker-alt"></i> Location</h2>
+                
+                <div class="form-group">
+                    <label for="latitude">Latitude</label>
+                    <input type="number" id="latitude" placeholder="40.7128" step="any" value="40.7829">
+                </div>
+                
+                <div class="form-group">
+                    <label for="longitude">Longitude</label>
+                    <input type="number" id="longitude" placeholder="-74.0060" step="any" value="-73.9654">
+                </div>
+
+                <div class="form-group">
+                    <label for="location-description">Location Description</label>
+                    <input type="text" id="location-description" placeholder="Central Park, near the lake" value="Central Park, near the lake">
+                </div>
+                
+                <button id="generate-btn">Generate AR Link</button>
+            </div>
+            
+            <div class="preview-section">
+                <h2 class="section-title"><i class="fas fa-eye"></i> Preview</h2>
+                
+                <div class="model-preview">
+                    <div id="preview-container">
+                        <div id="loading-message">Loading preview...</div>
+                    </div>
+                </div>
+                
+                <div class="coordinates">
+                    <p><strong>Coordinates:</strong> <span id="coord-display">40.7829, -73.9654 (Central Park)</span></p>
+                    <p><strong>Model Height:</strong> <span id="height-display">20m</span></p>
+                    <p><strong>Placement Height:</strong> <span id="placement-display">0m</span></p>
+                </div>
+                
+                <div class="generated-link">
+                    <h3>Your AR Link</h3>
+                    <p>Share this link to view the model in AR at the specified location</p>
+                    <div class="link-box">
+                        <span id="ar-link">Generate a link to get started</span>
+                        <button class="copy-btn" id="copy-btn">Copy</button>
+                    </div>
+                    <div class="qr-code-container" id="qr-code-container">
+                        <p>Scan QR Code to open on mobile:</p>
+                        <canvas id="qr-code"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h2>How to Use</h2>
+            <ol>
+                <li>Enter the URL of your 3D model (supports .glb, .gltf formats)</li>
+                <li>Provide a name for your model</li>
+                <li>Set the model height (size) and placement height (elevation from ground)</li>
+                <li>Enter the latitude and longitude where the model should appear</li>
+                <li>Click "Generate AR Link" to create your shareable AR link</li>
+                <li>Share the link with others - when opened on a mobile device, it will access the camera and show the model in AR at the specified location</li>
+            </ol>
+        </div>
+        
+        <footer>
+            <p>AR Model Placement Tool &copy; 2023 | Uses Three.js and Web Geolocation API</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
