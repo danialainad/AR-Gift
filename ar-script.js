@@ -2,8 +2,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Get URL parameters
     const urlParams = new URLSearchParams(window.location.search);
     const modelUrl = urlParams.get('model');
-    const lat = parseFloat(urlParams.get('lat'));
-    const lng = parseFloat(urlParams.get('lng'));
+    const targetLat = parseFloat(urlParams.get('lat'));
+    const targetLng = parseFloat(urlParams.get('lng'));
     const height = parseFloat(urlParams.get('height'));
     const placementHeight = parseFloat(urlParams.get('placement'));
     const modelName = urlParams.get('name');
@@ -25,13 +25,15 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Set UI information
     modelNameElement.textContent = modelName || '3D Model';
-    modelLocationElement.textContent = locationDesc || `Location: ${lat}, ${lng}`;
+    modelLocationElement.textContent = locationDesc || `Location: ${targetLat}, ${targetLng}`;
     modelSizeElement.textContent = `Size: ${height}m tall`;
     
     // Three.js variables
     let scene, camera, renderer, model;
     let userPosition = null;
-    let modelPosition = null;
+    let userHeading = 0; // Compass heading in degrees
+    let deviceOrientation = { alpha: 0, beta: 0, gamma: 0 };
+    let isCompassAvailable = false;
     
     // Initialize the AR experience
     function init() {
@@ -59,17 +61,15 @@ document.addEventListener('DOMContentLoaded', function() {
         directionalLight.position.set(10, 10, 5);
         scene.add(directionalLight);
         
-        // Calculate model position based on user's location
-        calculateModelPosition();
-        
         // Load the 3D model
         loadModel();
         
         // Start the render loop
         animate();
         
-        // Set up geolocation tracking
+        // Set up geolocation and orientation tracking
         setupGeolocation();
+        setupDeviceOrientation();
         
         // Hide loading screen after a short delay
         setTimeout(() => {
@@ -77,11 +77,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 loadingElement.classList.add('hidden');
             }
         }, 3000);
-    }
-    
-    function calculateModelPosition() {
-        // For demo purposes, we'll place the model 10 meters in front of the user
-        modelPosition = new THREE.Vector3(0, placementHeight, -10);
     }
     
     function loadModel() {
@@ -112,8 +107,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 const scale = height / modelHeight;
                 model.scale.set(scale, scale, scale);
                 
-                // Position the model
-                model.position.copy(modelPosition);
+                // Position will be updated based on user location and direction
+                model.position.set(0, placementHeight, -20);
                 
                 // Add the model to the scene
                 scene.add(model);
@@ -146,7 +141,7 @@ document.addEventListener('DOMContentLoaded', function() {
             opacity: 0.8
         });
         model = new THREE.Mesh(geometry, material);
-        model.position.copy(modelPosition);
+        model.position.set(0, placementHeight, -20);
         scene.add(model);
     }
     
@@ -169,52 +164,192 @@ document.addEventListener('DOMContentLoaded', function() {
             function(position) {
                 userPosition = {
                     lat: position.coords.latitude,
-                    lng: position.coords.longitude
+                    lng: position.coords.longitude,
+                    accuracy: position.coords.accuracy
                 };
                 
-                // Calculate distance to target
-                const distance = calculateDistance(
+                // Calculate distance and bearing to target
+                const { distance, bearing } = calculateDistanceAndBearing(
                     userPosition.lat, userPosition.lng,
-                    lat, lng
+                    targetLat, targetLng
                 );
                 
-                distanceElement.textContent = `${distance.toFixed(1)} meters`;
+                distanceElement.textContent = `${distance.toFixed(1)} meters away`;
                 
-                // Adjust model visibility based on distance
-                if (model) {
-                    // In a real app, you would adjust the model position based on the user's location
-                    // For this demo, we'll just adjust the scale based on distance
-                    const scaleFactor = Math.min(1, Math.max(0.3, 1 - (distance / 100)));
-                    model.scale.set(scaleFactor, scaleFactor, scaleFactor);
-                }
+                // Update model position based on user location and direction
+                updateModelPosition(distance, bearing);
             },
             function(error) {
                 console.error('Geolocation error:', error);
                 distanceElement.textContent = 'Location unavailable';
+                // Use default position if geolocation fails
+                updateModelPosition(50, 0);
             },
             options
         );
     }
     
-    function calculateDistance(lat1, lon1, lat2, lon2) {
-        // Haversine formula to calculate distance between two coordinates
+    function setupDeviceOrientation() {
+        if (!window.DeviceOrientationEvent) {
+            console.warn('Device orientation not supported');
+            loadingStatus.textContent += ' | Orientation: Not supported';
+            return;
+        }
+        
+        // Request permission for iOS 13+ devices
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+            DeviceOrientationEvent.requestPermission()
+                .then(permissionState => {
+                    if (permissionState === 'granted') {
+                        window.addEventListener('deviceorientation', handleDeviceOrientation);
+                        isCompassAvailable = true;
+                        loadingStatus.textContent += ' | Orientation: Enabled';
+                    } else {
+                        console.warn('Device orientation permission denied');
+                        loadingStatus.textContent += ' | Orientation: Denied';
+                    }
+                })
+                .catch(console.error);
+        } else {
+            // For non-iOS devices
+            window.addEventListener('deviceorientation', handleDeviceOrientation);
+            isCompassAvailable = true;
+            loadingStatus.textContent += ' | Orientation: Enabled';
+        }
+        
+        // Also listen for compass heading
+        window.addEventListener('deviceorientation', handleCompass);
+    }
+    
+    function handleDeviceOrientation(event) {
+        deviceOrientation = {
+            alpha: event.alpha || 0, // Compass direction (0-360)
+            beta: event.beta || 0,   // Front-back tilt (-180 to 180)
+            gamma: event.gamma || 0  // Left-right tilt (-90 to 90)
+        };
+    }
+    
+    function handleCompass(event) {
+        if (event.alpha !== null) {
+            userHeading = event.alpha; // Compass heading in degrees
+        }
+    }
+    
+    function calculateDistanceAndBearing(lat1, lon1, lat2, lon2) {
         const R = 6371000; // Earth's radius in meters
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = 
-            Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon/2) * Math.sin(dLon/2);
+        
+        // Convert to radians
+        const φ1 = lat1 * Math.PI / 180;
+        const φ2 = lat2 * Math.PI / 180;
+        const Δφ = (lat2 - lat1) * Math.PI / 180;
+        const Δλ = (lon2 - lon1) * Math.PI / 180;
+        
+        // Haversine formula for distance
+        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                 Math.cos(φ1) * Math.cos(φ2) *
+                 Math.sin(Δλ/2) * Math.sin(Δλ/2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        return R * c;
+        const distance = R * c;
+        
+        // Bearing calculation
+        const y = Math.sin(Δλ) * Math.cos(φ2);
+        const x = Math.cos(φ1) * Math.sin(φ2) -
+                 Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+        const bearing = Math.atan2(y, x) * 180 / Math.PI;
+        
+        return {
+            distance: distance,
+            bearing: (bearing + 360) % 360 // Normalize to 0-360
+        };
+    }
+    
+    function updateModelPosition(distance, bearing) {
+        if (!model) return;
+        
+        // Convert to relative position in front of camera
+        const maxDistance = 100; // Maximum visible distance in AR
+        const visibleDistance = Math.min(distance, maxDistance);
+        
+        // Calculate angle between user's heading and target bearing
+        const relativeAngle = (bearing - userHeading + 360) % 360;
+        
+        // Convert to radians and calculate position
+        const angleRad = (relativeAngle * Math.PI) / 180;
+        
+        // Position model in front of camera based on relative angle
+        const x = Math.sin(angleRad) * (visibleDistance / 10);
+        const z = -Math.cos(angleRad) * (visibleDistance / 10);
+        
+        // Update model position
+        model.position.set(x, placementHeight, z);
+        
+        // Rotate model to face user
+        model.lookAt(0, placementHeight, 0);
+        
+        // Adjust scale based on distance (further away = smaller)
+        const scaleFactor = Math.max(0.1, 1 - (distance / 200));
+        const box = new THREE.Box3().setFromObject(model);
+        const modelHeight = box.max.y - box.min.y;
+        const baseScale = height / modelHeight;
+        model.scale.set(baseScale * scaleFactor, baseScale * scaleFactor, baseScale * scaleFactor);
+        
+        // Update UI with direction information
+        updateDirectionUI(relativeAngle, distance);
+    }
+    
+    function updateDirectionUI(relativeAngle, distance) {
+        let directionText = '';
+        
+        if (distance < 10) {
+            directionText = 'You are very close! Look around.';
+        } else {
+            // Convert relative angle to cardinal direction
+            if (relativeAngle > 337.5 || relativeAngle < 22.5) {
+                directionText = 'Model is North of you';
+            } else if (relativeAngle >= 22.5 && relativeAngle < 67.5) {
+                directionText = 'Model is Northeast of you';
+            } else if (relativeAngle >= 67.5 && relativeAngle < 112.5) {
+                directionText = 'Model is East of you';
+            } else if (relativeAngle >= 112.5 && relativeAngle < 157.5) {
+                directionText = 'Model is Southeast of you';
+            } else if (relativeAngle >= 157.5 && relativeAngle < 202.5) {
+                directionText = 'Model is South of you';
+            } else if (relativeAngle >= 202.5 && relativeAngle < 247.5) {
+                directionText = 'Model is Southwest of you';
+            } else if (relativeAngle >= 247.5 && relativeAngle < 292.5) {
+                directionText = 'Model is West of you';
+            } else {
+                directionText = 'Model is Northwest of you';
+            }
+            
+            // Add arrow indicator
+            const arrow = getDirectionArrow(relativeAngle);
+            directionText = `${arrow} ${directionText}`;
+        }
+        
+        // Update distance element with direction info
+        distanceElement.innerHTML = `${distance.toFixed(1)} meters away<br><small>${directionText}</small>`;
+    }
+    
+    function getDirectionArrow(angle) {
+        // Return arrow emoji based on direction
+        if (angle > 337.5 || angle < 22.5) return '⬆️';
+        if (angle >= 22.5 && angle < 67.5) return '↗️';
+        if (angle >= 67.5 && angle < 112.5) return '➡️';
+        if (angle >= 112.5 && angle < 157.5) return '↘️';
+        if (angle >= 157.5 && angle < 202.5) return '⬇️';
+        if (angle >= 202.5 && angle < 247.5) return '↙️';
+        if (angle >= 247.5 && angle < 292.5) return '⬅️';
+        return '↖️';
     }
     
     function animate() {
         requestAnimationFrame(animate);
         
-        // Rotate the model slowly
-        if (model) {
-            model.rotation.y += 0.005;
+        // If we have device orientation data, rotate the camera
+        if (isCompassAvailable && deviceOrientation.alpha !== null) {
+            // Convert device orientation to camera rotation
+            camera.rotation.y = -deviceOrientation.alpha * (Math.PI / 180);
         }
         
         renderer.render(scene, camera);
@@ -255,6 +390,11 @@ document.addEventListener('DOMContentLoaded', function() {
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
+    
+    // Add instructions for iOS
+    if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) {
+        loadingStatus.textContent = 'iOS: You may need to allow motion permissions';
+    }
     
     // Start the AR experience
     init();
