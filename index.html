@@ -3,12 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Geo AR - Place GLB by GPS</title>
+  <title>AR Model Placer - Manual Coordinates</title>
 
   <!-- A-Frame + AR.js (location-based) -->
   <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
   <!-- AR.js location plugin (gps-entity-place, gps-camera) -->
   <script src="https://rawcdn.githack.com/AR-js-org/AR.js/3.4.0/aframe/build/aframe-ar.js"></script>
+  <!-- Leaflet for map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <style>
     body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
@@ -18,36 +21,107 @@
       left: 10px;
       top: 10px;
       background: rgba(255,255,255,0.95);
-      padding: 10px;
+      padding: 15px;
       border-radius: 8px;
       box-shadow: 0 6px 18px rgba(0,0,0,0.12);
-      width: 320px;
+      width: 350px;
+      max-height: 90vh;
+      overflow-y: auto;
     }
-    #ui label { display:block; font-size:12px; margin-top:6px; color:#333 }
-    #ui input { width:100%; padding:6px; font-size:14px; margin-top:4px; box-sizing:border-box }
-    #ui button { margin-top:8px; width:100%; padding:8px; font-size:15px; }
-    #notice { font-size:12px; color:#666; margin-top:6px }
-    #linkOut { font-size:13px; word-break:break-all; margin-top:8px; background:#f6f6f6; padding:6px; border-radius:6px }
+    #ui label { display:block; font-size:12px; margin-top:8px; color:#333; font-weight: 500; }
+    #ui input, #ui select { width:100%; padding:8px; font-size:14px; margin-top:4px; box-sizing:border-box; border: 1px solid #ddd; border-radius: 4px; }
+    #ui button { margin-top:10px; width:100%; padding:10px; font-size:15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    #ui button:hover { background: #0056b3; }
+    #ui button:disabled { background: #ccc; cursor: not-allowed; }
+    #notice { font-size:12px; color:#666; margin-top:8px; line-height: 1.4; }
+    #linkOut { font-size:13px; word-break:break-all; margin-top:8px; background:#f6f6f6; padding:8px; border-radius:6px; border: 1px solid #ddd; }
+    #map { height: 200px; width: 100%; margin-top: 8px; border-radius: 4px; border: 1px solid #ddd; }
+    .tab-container { margin-bottom: 10px; }
+    .tab-buttons { display: flex; margin-bottom: 10px; }
+    .tab-button { flex: 1; padding: 8px; background: #f0f0f0; border: none; cursor: pointer; border-radius: 4px 4px 0 0; }
+    .tab-button.active { background: #007bff; color: white; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .coordinate-inputs { display: flex; gap: 8px; }
+    .coordinate-inputs input { flex: 1; }
+    .loading { opacity: 0.6; pointer-events: none; }
   </style>
 </head>
 <body>
 
   <div id="ui">
-    <strong>Place "batman.glb" in AR (GPS)</strong>
-    <label>Latitude
-      <input id="lat" placeholder="e.g. 52.3740" type="number" step="any">
-    </label>
-    <label>Longitude
-      <input id="lon" placeholder="e.g. 4.8897" type="number" step="any">
-    </label>
-    <label>Height (meters above ground)
-      <input id="alt" placeholder="e.g. 20" type="number" step="any" value="20">
-    </label>
-    <label>Desired model size (meters) — the largest dimension will match this
-      <input id="meters" placeholder="e.g. 20" type="number" step="any" value="20">
-    </label>
+    <h3 style="margin: 0 0 15px 0; color: #333;">AR Model Placer</h3>
+    
+    <div class="tab-container">
+      <div class="tab-buttons">
+        <button class="tab-button active" data-tab="coordinates">Coordinates</button>
+        <button class="tab-button" data-tab="model">Model</button>
+      </div>
+      
+      <div id="coordinates-tab" class="tab-content active">
+        <label>Input Method
+          <select id="inputMethod">
+            <option value="manual">Manual Coordinates</option>
+            <option value="map">Map Selection</option>
+            <option value="gps">GPS Coordinates</option>
+          </select>
+        </label>
+        
+        <div id="manualInput">
+          <label>X Coordinate (Longitude)
+            <input id="lon" placeholder="e.g. 4.8897" type="number" step="any">
+          </label>
+          <label>Y Coordinate (Latitude)
+            <input id="lat" placeholder="e.g. 52.3740" type="number" step="any">
+          </label>
+        </div>
+        
+        <div id="mapInput" style="display: none;">
+          <div id="map"></div>
+          <div style="margin-top: 8px; font-size: 12px; color: #666;">
+            Click on the map to select coordinates
+          </div>
+        </div>
+        
+        <div id="gpsInput" style="display: none;">
+          <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
+            Use your device's GPS location
+          </div>
+          <button id="getLocation" style="background: #28a745;">Get My Location</button>
+        </div>
+        
+        <label>Height (Z-axis in meters)
+          <input id="alt" placeholder="e.g. 20" type="number" step="any" value="20">
+        </label>
+      </div>
+      
+      <div id="model-tab" class="tab-content">
+        <label>3D Model Source
+          <select id="modelSource">
+            <option value="github">GitHub Raw Link</option>
+            <option value="local">Local File</option>
+          </select>
+        </label>
+        
+        <div id="githubInput">
+          <label>GitHub Raw GLB URL
+            <input id="modelUrl" placeholder="https://raw.githubusercontent.com/..." type="url">
+          </label>
+        </div>
+        
+        <div id="localInput" style="display: none;">
+          <label>Local Model File
+            <input id="localModel" type="file" accept=".glb,.gltf">
+          </label>
+        </div>
+        
+        <label>Model Size (meters) — largest dimension
+          <input id="meters" placeholder="e.g. 20" type="number" step="any" value="20">
+        </label>
+      </div>
+    </div>
 
-    <button id="generate">Generate link</button>
+    <button id="generate">Generate AR Link</button>
     <div id="notice">Open the generated link on a mobile device (enable camera & location). For best results use Chrome on Android with WebXR support or modern mobile browsers supporting WebAR.</div>
     <div id="linkOut" style="display:none"></div>
   </div>
@@ -69,48 +143,153 @@
 
 <script>
 /*
-Behavior:
-- On generate, create a URL with query params: lat,lon,alt,meters
-- On load, if query params present, create a gps-entity-place with the model
-- Load glTF via THREE.GLTFLoader to compute bounding box and compute uniform scale
-- Then set the entity.object3D.scale to match desired meters
-- Use position="0 ALT 0" on the entity so AR.js places it at the specified altitude
+Enhanced AR Model Placer with:
+- Manual coordinate input (X, Y)
+- Map-based coordinate selection
+- GPS location detection
+- GitHub raw GLB link support
+- Local file upload support
+- Proper scaling in meters
 */
 
 (function(){
-  const modelFileCandidates = ['batman.glb','batman.gltf']; // will try these in order
-  let modelFile = modelFileCandidates[0];
+  let map = null;
+  let selectedCoords = null;
+  let modelFile = null;
 
-  // parse query params
+  // Initialize UI
+  function initUI() {
+    // Tab switching
+    document.querySelectorAll('.tab-button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(tab + '-tab').classList.add('active');
+      });
+    });
+
+    // Input method switching
+    document.getElementById('inputMethod').addEventListener('change', (e) => {
+      const method = e.target.value;
+      document.getElementById('manualInput').style.display = method === 'manual' ? 'block' : 'none';
+      document.getElementById('mapInput').style.display = method === 'map' ? 'block' : 'none';
+      document.getElementById('gpsInput').style.display = method === 'gps' ? 'block' : 'none';
+      
+      if (method === 'map' && !map) {
+        initMap();
+      }
+    });
+
+    // Model source switching
+    document.getElementById('modelSource').addEventListener('change', (e) => {
+      const source = e.target.value;
+      document.getElementById('githubInput').style.display = source === 'github' ? 'block' : 'none';
+      document.getElementById('localInput').style.display = source === 'local' ? 'block' : 'none';
+    });
+
+    // GPS location
+    document.getElementById('getLocation').addEventListener('click', () => {
+      if (!navigator.geolocation) {
+        alert('Geolocation is not supported by this browser.');
+        return;
+      }
+      
+      document.getElementById('getLocation').textContent = 'Getting location...';
+      document.getElementById('getLocation').disabled = true;
+      
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          document.getElementById('lat').value = position.coords.latitude;
+          document.getElementById('lon').value = position.coords.longitude;
+          document.getElementById('getLocation').textContent = 'Get My Location';
+          document.getElementById('getLocation').disabled = false;
+        },
+        (error) => {
+          alert('Error getting location: ' + error.message);
+          document.getElementById('getLocation').textContent = 'Get My Location';
+          document.getElementById('getLocation').disabled = false;
+        }
+      );
+    });
+
+    // Local file handling
+    document.getElementById('localModel').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const url = URL.createObjectURL(file);
+        modelFile = url;
+      }
+    });
+  }
+
+  // Initialize map
+  function initMap() {
+    if (map) return;
+    
+    map = L.map('map').setView([52.3740, 4.8897], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+    
+    map.on('click', (e) => {
+      if (selectedCoords) {
+        map.removeLayer(selectedCoords);
+      }
+      
+      selectedCoords = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map);
+      document.getElementById('lat').value = e.latlng.lat.toFixed(6);
+      document.getElementById('lon').value = e.latlng.lng.toFixed(6);
+    });
+  }
+
+  // Parse query params
   function getParams(){
     const p = new URLSearchParams(window.location.search);
     return {
       lat: p.get('lat'),
       lon: p.get('lon'),
       alt: p.get('alt'),
-      meters: p.get('meters')
+      meters: p.get('meters'),
+      model: p.get('model')
     };
   }
 
-  // build shareable link
+  // Build shareable link
   document.getElementById('generate').addEventListener('click', ()=>{
     const lat = document.getElementById('lat').value.trim();
     const lon = document.getElementById('lon').value.trim();
     const alt = document.getElementById('alt').value.trim();
     const meters = document.getElementById('meters').value.trim();
-    if(!lat || !lon || !meters){ alert('Enter latitude, longitude, and desired meters. Altitude defaults to 0 if empty.'); return; }
+    const modelUrl = document.getElementById('modelUrl').value.trim();
+    
+    if(!lat || !lon || !meters){ 
+      alert('Please enter coordinates and model size.'); 
+      return; 
+    }
+    
+    if(!modelUrl && !modelFile){ 
+      alert('Please provide a model URL or select a local file.'); 
+      return; 
+    }
+    
     const url = new URL(window.location.href.split('?')[0]);
     url.searchParams.set('lat', lat);
     url.searchParams.set('lon', lon);
     url.searchParams.set('alt', alt || '0');
     url.searchParams.set('meters', meters);
+    if (modelUrl) {
+      url.searchParams.set('model', modelUrl);
+    }
+    
     const linkOut = document.getElementById('linkOut');
     linkOut.style.display='block';
     linkOut.textContent = url.toString();
     linkOut.onclick = ()=> navigator.clipboard?.writeText(url.toString());
   });
 
-  // helper: load GLTF via THREE's loader used inside A-Frame
+  // Helper: load GLTF via THREE's loader used inside A-Frame
   function loadGLTF(path){
     return new Promise((resolve, reject)=>{
       const loader = new THREE.GLTFLoader();
@@ -118,48 +297,52 @@ Behavior:
     });
   }
 
+  // Helper: get model path from params or UI
+  function getModelPath(params) {
+    if (params.model) {
+      return params.model;
+    }
+    
+    const modelUrl = document.getElementById('modelUrl').value.trim();
+    if (modelUrl) {
+      return modelUrl;
+    }
+    
+    if (modelFile) {
+      return modelFile;
+    }
+    
+    // Fallback to local files
+    const modelFileCandidates = ['batman.glb','batman.gltf'];
+    return modelFileCandidates[0];
+  }
+
   async function placeModelFromParams(params){
     if(!params.lat || !params.lon || !params.meters) return;
 
-    // choose file (attempt both if first fails)
-    async function tryLoadCandidates(){
-      for(const f of modelFileCandidates){
-        try {
-          await fetch(f, { method:'HEAD' }); // check exists
-          modelFile = f;
-          return f;
-        } catch(e){
-          // not found -> try next
-        }
-      }
-      // fallback to first: let loader handle 404s
-      return modelFileCandidates[0];
-    }
-    await tryLoadCandidates();
+    const modelPath = getModelPath(params);
 
-    const modelPath = modelFile;
-
-    // create entity for gps-entity-place
+    // Create entity for gps-entity-place
     const container = document.getElementById('model-container');
-    // remove existing children if any
+    // Remove existing children if any
     while(container.firstChild) container.removeChild(container.firstChild);
 
     const entity = document.createElement('a-entity');
     entity.setAttribute('gps-entity-place', `latitude: ${params.lat}; longitude: ${params.lon};`);
-    // apply a position Y for altitude (AR.js examples often use position="0 ALT 0")
+    // Apply a position Y for altitude (AR.js examples often use position="0 ALT 0")
     entity.setAttribute('position', `0 ${Number(params.alt||0)} 0`);
-    // add gltf-model attribute but we'll load and then adjust scale after computing bounding box
+    // Add gltf-model attribute but we'll load and then adjust scale after computing bounding box
     entity.setAttribute('gltf-model', modelPath);
-    // give id so we can refer to it later
+    // Give id so we can refer to it later
     entity.setAttribute('id','gltf-model-entity');
 
-    // optionally rotate to an initial orientation
+    // Optionally rotate to an initial orientation
     entity.setAttribute('rotation', '0 0 0');
 
     container.appendChild(entity);
 
-    // wait for model to load in scene, then compute bounding box and scale
-    // use THREE loader to compute bounding box
+    // Wait for model to load in scene, then compute bounding box and scale
+    // Use THREE loader to compute bounding box
     try {
       const gltf = await loadGLTF(modelPath);
       const sceneObj = gltf.scene || gltf.scenes[0];
@@ -168,18 +351,18 @@ Behavior:
         return;
       }
 
-      // compute bounding box
+      // Compute bounding box
       const box = new THREE.Box3().setFromObject(sceneObj);
       const size = new THREE.Vector3();
       box.getSize(size);
       const maxDim = Math.max(size.x, size.y, size.z);
-      // if model has zero size (bad export), default maxDim=1
+      // If model has zero size (bad export), default maxDim=1
       const safeMax = (maxDim <= 0 || isNaN(maxDim)) ? 1 : maxDim;
 
       const desiredMeters = Number(params.meters);
       const scaleFactor = desiredMeters / safeMax;
 
-      // wait until the entity's object3D exists in the A-Frame scene (frame loop)
+      // Wait until the entity's object3D exists in the A-Frame scene (frame loop)
       const afEntity = document.getElementById('gltf-model-entity');
       const waitForObj = () => new Promise(res=>{
         const t0 = performance.now();
@@ -193,12 +376,12 @@ Behavior:
       });
       await waitForObj();
 
-      // set uniform scale on the loaded model object (apply to the first child)
+      // Set uniform scale on the loaded model object (apply to the first child)
       // We prefer to scale the actual glTF root so A-Frame's position/rotation remain consistent.
       const targetObj = afEntity.object3D;
       targetObj.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
-      // optionally tilt/rotate the model so its base aligns with ground
+      // Optionally tilt/rotate the model so its base aligns with ground
       // If model's pivot is not at base, user may need to adjust via additional UI.
       // Ensure model faces camera initially by rotating to camera heading (best effort)
       // We'll set up an interval to make it face the camera horizontally
@@ -216,26 +399,28 @@ Behavior:
             afEntity.object3D.rotation.y = yaw * (Math.PI/180);
           } catch(e){}
         };
-        // call once and then on deviceorientation events / every second
+        // Call once and then on deviceorientation events / every second
         orientToCamera();
         const orientInterval = setInterval(orientToCamera, 1500);
-        // clear after 20s to avoid endless work
+        // Clear after 20s to avoid endless work
         setTimeout(()=> clearInterval(orientInterval), 20000);
       }
 
       console.log('Placed model', {modelPath, scaleFactor, safeMax});
     } catch(err){
       console.error('Error loading model', err);
-      alert('Failed to load model file. Make sure "batman.glb" or "batman.gltf" exists next to this index.html.');
+      alert('Failed to load model file. Please check the URL or file path.');
     }
   }
 
-  // on load, parse params and place
+  // On load, initialize UI and handle AR placement
   window.addEventListener('load', ()=>{
+    initUI();
+    
     const params = getParams();
     if(params.lat && params.lon && params.meters){
-      // hide UI to let AR view be fullscreen (optional)
-      //document.getElementById('ui').style.display='none';
+      // Hide UI to let AR view be fullscreen when viewing AR
+      document.getElementById('ui').style.display='none';
       placeModelFromParams(params);
     }
   });
